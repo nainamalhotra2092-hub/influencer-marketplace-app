@@ -3,14 +3,15 @@ services:
     name: facetroop
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    nodeVersion: "22.16.0"
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_ENV
-        value: production
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: ALLOWED_ORIGINS
-        value: https://www.facetroop.com,https://facetroop.com
+        value: https://www.facetroop.com,https://facetroop.com,https://facetroop.onrender.com
       - key: DATABASE_URL
         fromDatabase:
           name: facetroop-db
@@ -18,4 +19,4 @@ services:
 
 databases:
   - name: facetroop-db
-    plan: free
+    plan: basic-256mb
