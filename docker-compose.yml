@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: facerights-postgres
+    environment:
+      POSTGRES_USER: facerights
+      POSTGRES_PASSWORD: facerights
+      POSTGRES_DB: facerights
+    ports:
+      - "5432:5432"
+    volumes:
+      - facerights_pg:/var/lib/postgresql/data
+
+volumes:
+  facerights_pg:

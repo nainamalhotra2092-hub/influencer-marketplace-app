@@ -15,6 +15,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return data;
 }
 
+export function fetchUser(userId: string) {
+  return request<{ user: User }>(`/api/users/${userId}`);
+}
+
 export function registerUser(payload: Record<string, unknown>) {
   return request<{ user: User }>("/api/register", {
     method: "POST",

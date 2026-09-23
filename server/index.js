@@ -1,9 +1,11 @@
 import http from "node:http";
+import { initDatabase, query } from "./db.js";
 import {
   addMedia,
   completeProfile,
   createLicense,
   getStudio,
+  getUser,
   listLicenses,
   listTalent,
   registerUser,
@@ -69,11 +71,12 @@ async function handle(req, res) {
 
   try {
     if (req.method === "GET" && pathname === "/api/health") {
-      return send(res, 200, { ok: true, service: "facerights-api" });
+      await query("SELECT 1");
+      return send(res, 200, { ok: true, service: "facerights-api", database: "postgres" });
     }
 
     if (req.method === "GET" && pathname === "/api/talent") {
-      const results = listTalent({
+      const results = await listTalent({
         query: searchParams.get("query") || "",
         gender: searchParams.get("gender") || "All",
         categories: csv(searchParams.get("categories")),
@@ -84,42 +87,47 @@ async function handle(req, res) {
 
     if (req.method === "POST" && pathname === "/api/register") {
       const body = await readBody(req);
-      return send(res, 201, { user: registerUser(body) });
+      return send(res, 201, { user: await registerUser(body) });
     }
 
     if (req.method === "POST" && pathname === "/api/verify") {
       const body = await readBody(req);
-      return send(res, 200, { user: verifyUser(body.userId, body.field) });
+      return send(res, 200, { user: await verifyUser(body.userId, body.field) });
+    }
+
+    const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+    if (req.method === "GET" && userMatch) {
+      return send(res, 200, { user: await getUser(userMatch[1]) });
     }
 
     const profileMatch = pathname.match(/^\/api\/users\/([^/]+)\/profile$/);
     if (req.method === "PATCH" && profileMatch) {
       const body = await readBody(req);
-      return send(res, 200, { user: completeProfile(profileMatch[1], body) });
+      return send(res, 200, { user: await completeProfile(profileMatch[1], body) });
     }
 
     const studioMatch = pathname.match(/^\/api\/users\/([^/]+)\/studio$/);
     if (req.method === "GET" && studioMatch) {
-      return send(res, 200, getStudio(studioMatch[1]));
+      return send(res, 200, await getStudio(studioMatch[1]));
     }
 
     const mediaMatch = pathname.match(/^\/api\/users\/([^/]+)\/media$/);
     if (req.method === "POST" && mediaMatch) {
-      return send(res, 201, { media: addMedia(mediaMatch[1]) });
+      return send(res, 201, { media: await addMedia(mediaMatch[1]) });
     }
 
     const mediaDelete = pathname.match(/^\/api\/users\/([^/]+)\/media\/([^/]+)$/);
     if (req.method === "DELETE" && mediaDelete) {
-      return send(res, 200, { media: removeMedia(mediaDelete[1], mediaDelete[2]) });
+      return send(res, 200, { media: await removeMedia(mediaDelete[1], mediaDelete[2]) });
     }
 
     if (req.method === "GET" && pathname === "/api/licenses") {
-      return send(res, 200, { licenses: listLicenses() });
+      return send(res, 200, { licenses: await listLicenses() });
     }
 
     if (req.method === "POST" && pathname === "/api/licenses") {
       const body = await readBody(req);
-      return send(res, 201, { license: createLicense(body) });
+      return send(res, 201, { license: await createLicense(body) });
     }
 
     return notFound(res);
@@ -128,6 +136,13 @@ async function handle(req, res) {
   }
 }
 
-http.createServer(handle).listen(PORT, "0.0.0.0", () => {
-  console.log(`FACERIGHTS API running at http://localhost:${PORT}`);
-});
+initDatabase()
+  .then(() => {
+    http.createServer(handle).listen(PORT, "0.0.0.0", () => {
+      console.log(`FACERIGHTS API running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to connect to Postgres:", error.message);
+    process.exit(1);
+  });

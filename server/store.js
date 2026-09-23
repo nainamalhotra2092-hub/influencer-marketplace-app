@@ -1,3 +1,5 @@
+import { query, withTransaction } from "./db.js";
+
 const SAMPLE_IMAGES = [
   "https://images.unsplash.com/photo-1535579710123-3c0f261c474e?auto=format&fit=crop&w=900&q=85",
   "https://images.unsplash.com/photo-1590335745924-8430837a573d?auto=format&fit=crop&w=900&q=85",
@@ -12,277 +14,267 @@ function id(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const talent = [
-  {
-    id: "tal_aanya",
-    name: "Aanya Rao",
-    type: "Actor · Creator",
-    image: SAMPLE_IMAGES[0],
-    followers: "824K",
-    collaborations: 46,
-    tags: ["Female", "Actor", "Creator"],
-    age: 26,
-    price: "₹42,000",
-    views: 2418,
-    shortlists: 34,
-  },
-  {
-    id: "tal_arjun",
-    name: "Arjun Mehta",
-    type: "Actor · Model",
-    image: SAMPLE_IMAGES[1],
-    followers: "356K",
-    collaborations: 31,
-    tags: ["Male", "Actor", "Model"],
-    age: 29,
-    price: "₹36,000",
-    views: 1104,
-    shortlists: 18,
-  },
-  {
-    id: "tal_mira",
-    name: "Mira Sen",
-    type: "Artist · Musician",
-    image: SAMPLE_IMAGES[2],
-    followers: "1.2M",
-    collaborations: 68,
-    tags: ["Female", "Artist"],
-    age: 32,
-    price: "₹58,000",
-    views: 3901,
-    shortlists: 52,
-  },
-  {
-    id: "tal_kabir",
-    name: "Kabir Anand",
-    type: "Creator · Performer",
-    image: SAMPLE_IMAGES[3],
-    followers: "219K",
-    collaborations: 24,
-    tags: ["Male", "Creator"],
-    age: 24,
-    price: "₹28,000",
-    views: 812,
-    shortlists: 11,
-  },
-  {
-    id: "tal_tara",
-    name: "Tara Kapoor",
-    type: "Model · Actor",
-    image: SAMPLE_IMAGES[4],
-    followers: "617K",
-    collaborations: 39,
-    tags: ["Female", "Model", "Actor"],
-    age: 27,
-    price: "₹39,000",
-    views: 1760,
-    shortlists: 27,
-  },
-  {
-    id: "tal_dev",
-    name: "Dev Malhotra",
-    type: "Actor · Voice artist",
-    image: SAMPLE_IMAGES[5],
-    followers: "403K",
-    collaborations: 35,
-    tags: ["Male", "Actor", "Artist"],
-    age: 41,
-    price: "₹44,000",
-    views: 1544,
-    shortlists: 22,
-  },
-];
-
-const users = [];
-const media = [
-  { id: 1, ownerId: "tal_aanya", title: "Front profile", image: SAMPLE_IMAGES[0] },
-  { id: 2, ownerId: "tal_aanya", title: "Side profile", image: SAMPLE_IMAGES[6] },
-  { id: 3, ownerId: "tal_aanya", title: "Joy · expression", image: SAMPLE_IMAGES[4] },
-];
-const licenses = [];
-let mediaSeq = 10;
-
-function inAgeRange(age, ranges) {
-  if (!ranges.length) return true;
-  return ranges.some((range) => {
-    if (range === "18-25" || range === "18–25") return age >= 18 && age <= 25;
-    if (range === "26-35" || range === "26–35") return age >= 26 && age <= 35;
-    if (range === "36-50" || range === "36–50") return age >= 36 && age <= 50;
-    return age >= 50;
-  });
-}
-
-export function listTalent({ query = "", gender = "All", categories = [], ages = [] } = {}) {
-  const needle = String(query).trim().toLowerCase();
-  return talent.filter((profile) => {
-    const matchesGender = gender === "All" || profile.tags.includes(gender);
-    const matchesCategory = categories.length === 0 || categories.some((category) => profile.tags.includes(category));
-    const matchesAge = inAgeRange(profile.age, ages);
-    const matchesQuery =
-      needle.length === 0 ||
-      profile.name.toLowerCase().includes(needle) ||
-      profile.type.toLowerCase().includes(needle) ||
-      profile.tags.some((tag) => tag.toLowerCase().includes(needle));
-    return matchesGender && matchesCategory && matchesAge && matchesQuery;
-  });
-}
-
-export function registerUser(input) {
-  const user = {
-    id: id("usr"),
-    role: input.role === "buyer" ? "buyer" : "artist",
-    name: String(input.name || "").trim(),
-    phone: String(input.phone || "").trim(),
-    email: String(input.email || "").trim().toLowerCase(),
-    company: String(input.company || "").trim(),
-    gstin: String(input.gstin || "").trim(),
-    emailVerified: Boolean(input.emailVerified),
-    identityVerified: Boolean(input.identityVerified),
-    age: null,
-    ethnicity: "",
-    city: "",
-    title: "",
-    bio: "",
-    talentId: null,
+function publicUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    role: row.role,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    company: row.company,
+    emailVerified: row.email_verified,
+    identityVerified: row.identity_verified,
+    age: row.age,
+    ethnicity: row.ethnicity,
+    city: row.city,
+    title: row.title,
+    bio: row.bio,
+    talentId: row.talent_id,
   };
+}
 
-  if (!user.name || !user.email) {
+function publicTalent(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    image: row.image,
+    followers: row.followers,
+    collaborations: row.collaborations,
+    tags: row.tags,
+    age: row.age,
+    price: row.price,
+    views: row.views,
+    shortlists: row.shortlists,
+  };
+}
+
+function ageSql(ranges) {
+  if (!ranges.length) return { sql: "TRUE", params: [] };
+  const clauses = [];
+  const params = [];
+  for (const range of ranges) {
+    if (range === "18-25" || range === "18–25") {
+      clauses.push("(age BETWEEN 18 AND 25)");
+    } else if (range === "26-35" || range === "26–35") {
+      clauses.push("(age BETWEEN 26 AND 35)");
+    } else if (range === "36-50" || range === "36–50") {
+      clauses.push("(age BETWEEN 36 AND 50)");
+    } else {
+      clauses.push("(age >= 50)");
+    }
+  }
+  return { sql: `(${clauses.join(" OR ")})`, params };
+}
+
+export async function listTalent({ query: q = "", gender = "All", categories = [], ages = [] } = {}) {
+  const needle = String(q).trim();
+  const age = ageSql(ages);
+  const params = [needle, gender, categories];
+  const { rows } = await query(
+    `SELECT * FROM talent
+     WHERE (
+       $1 = ''
+       OR name ILIKE '%' || $1 || '%'
+       OR type ILIKE '%' || $1 || '%'
+       OR EXISTS (SELECT 1 FROM unnest(tags) AS tag WHERE tag ILIKE '%' || $1 || '%')
+     )
+     AND ($2 = 'All' OR $2 = ANY(tags))
+     AND (cardinality($3::text[]) = 0 OR tags && $3::text[])
+     AND ${age.sql}
+     ORDER BY created_at DESC`,
+    params,
+  );
+  return rows.map(publicTalent);
+}
+
+export async function registerUser(input) {
+  const name = String(input.name || "").trim();
+  const email = String(input.email || "").trim().toLowerCase();
+  if (!name || !email) {
     throw Object.assign(new Error("Name and email are required"), { status: 400 });
   }
 
-  users.push(user);
-  return publicUser(user);
-}
-
-export function verifyUser(userId, field) {
-  const user = users.find((item) => item.id === userId);
-  if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
-  if (field === "email") user.emailVerified = true;
-  if (field === "identity") user.identityVerified = true;
-  return publicUser(user);
-}
-
-export function completeProfile(userId, input) {
-  const user = users.find((item) => item.id === userId);
-  if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
-
-  user.age = Number(input.age) || null;
-  user.ethnicity = String(input.ethnicity || "");
-  user.city = String(input.city || "");
-  user.title = String(input.title || "");
-  user.bio = String(input.bio || "");
-
-  if (user.role === "artist" && !user.talentId) {
-    const card = {
-      id: id("tal"),
-      name: user.name,
-      type: user.title || "Creator",
-      image: SAMPLE_IMAGES[0],
-      followers: "0",
-      collaborations: 0,
-      tags: ["Creator"],
-      age: user.age || 18,
-      price: "₹28,000",
-      views: 0,
-      shortlists: 0,
-    };
-    talent.unshift(card);
-    user.talentId = card.id;
+  try {
+    const { rows } = await query(
+      `INSERT INTO users (id, role, name, phone, email, company, gstin, email_verified, identity_verified)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING *`,
+      [
+        id("usr"),
+        input.role === "buyer" ? "buyer" : "artist",
+        name,
+        String(input.phone || "").trim(),
+        email,
+        String(input.company || "").trim(),
+        String(input.gstin || "").trim(),
+        Boolean(input.emailVerified),
+        Boolean(input.identityVerified),
+      ],
+    );
+    return publicUser(rows[0]);
+  } catch (error) {
+    if (error.code === "23505") {
+      throw Object.assign(new Error("An account with this email already exists"), { status: 409 });
+    }
+    throw error;
   }
-
-  return publicUser(user);
 }
 
-export function getStudio(userId) {
-  const user = users.find((item) => item.id === userId);
-  if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+export async function getUser(userId) {
+  const { rows } = await query("SELECT * FROM users WHERE id = $1", [userId]);
+  if (!rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
+  return publicUser(rows[0]);
+}
+
+export async function verifyUser(userId, field) {
+  const sql =
+    field === "email"
+      ? "UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING *"
+      : "UPDATE users SET identity_verified = TRUE WHERE id = $1 RETURNING *";
+  const { rows } = await query(sql, [userId]);
+  if (!rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
+  return publicUser(rows[0]);
+}
+
+export async function completeProfile(userId, input) {
+  return withTransaction(async (db) => {
+    const existing = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
+    if (!existing.rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
+    const user = existing.rows[0];
+    let talentId = user.talent_id;
+    const age = Number(input.age) || null;
+    const title = String(input.title || "");
+
+    if (user.role === "artist" && !talentId) {
+      talentId = id("tal");
+      await db.query(
+        `INSERT INTO talent (id, user_id, name, type, image, followers, collaborations, tags, age, price, views, shortlists)
+         VALUES ($1,$2,$3,$4,$5,'0',0, ARRAY['Creator']::text[], $6, '₹28,000', 0, 0)`,
+        [talentId, userId, user.name, title || "Creator", SAMPLE_IMAGES[0], age || 18],
+      );
+    }
+
+    const updated = await db.query(
+      `UPDATE users
+       SET age = $2, ethnicity = $3, city = $4, title = $5, bio = $6, talent_id = $7
+       WHERE id = $1
+       RETURNING *`,
+      [userId, age, String(input.ethnicity || ""), String(input.city || ""), title, String(input.bio || ""), talentId],
+    );
+    return publicUser(updated.rows[0]);
+  });
+}
+
+export async function getStudio(userId) {
+  const user = await getUser(userId);
   const ownerId = user.talentId || user.id;
-  const uploads = media.filter((item) => item.ownerId === ownerId || item.ownerId === user.id);
-  const card = talent.find((item) => item.id === user.talentId);
-  const completion = Math.min(100, 40 + uploads.length * 8 + (user.bio ? 12 : 0) + (user.identityVerified ? 12 : 0));
-  const relatedLicenses = licenses.filter((item) => item.talentId === user.talentId);
+  const uploads = await query("SELECT id, owner_id AS \"ownerId\", title, image FROM media WHERE owner_id = $1 OR owner_id = $2 ORDER BY id", [
+    ownerId,
+    user.id,
+  ]);
+  const card = user.talentId ? await query("SELECT * FROM talent WHERE id = $1", [user.talentId]) : { rows: [] };
+  const related = user.talentId
+    ? await query("SELECT COUNT(*)::int AS count, COALESCE(SUM(total),0)::int AS earnings FROM licenses WHERE talent_id = $1", [user.talentId])
+    : { rows: [{ count: 0, earnings: 0 }] };
+  const completion = Math.min(100, 40 + uploads.rows.length * 8 + (user.bio ? 12 : 0) + (user.identityVerified ? 12 : 0));
 
   return {
-    user: publicUser(user),
-    uploads,
+    user,
+    uploads: uploads.rows,
     completion,
     stats: {
-      views: card?.views ?? 0,
-      shortlists: card?.shortlists ?? 0,
-      licenses: relatedLicenses.length,
-      earnings: relatedLicenses.reduce((sum, item) => sum + item.total, 0),
+      views: card.rows[0]?.views ?? 0,
+      shortlists: card.rows[0]?.shortlists ?? 0,
+      licenses: related.rows[0].count,
+      earnings: related.rows[0].earnings,
     },
   };
 }
 
-export function addMedia(userId) {
-  const user = users.find((item) => item.id === userId);
-  if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+export async function addMedia(userId) {
+  const user = await getUser(userId);
   const ownerId = user.talentId || user.id;
-  const item = {
-    id: ++mediaSeq,
-    ownerId,
-    title: "New expression",
-    image: SAMPLE_IMAGES[mediaSeq % SAMPLE_IMAGES.length],
-  };
-  media.push(item);
-  return item;
+  const { rows: countRows } = await query("SELECT COUNT(*)::int AS count FROM media");
+  const image = SAMPLE_IMAGES[countRows[0].count % SAMPLE_IMAGES.length];
+  const { rows } = await query(
+    `INSERT INTO media (owner_id, title, image) VALUES ($1, 'New expression', $2)
+     RETURNING id, owner_id AS "ownerId", title, image`,
+    [ownerId, image],
+  );
+  return rows[0];
 }
 
-export function removeMedia(userId, mediaId) {
-  const user = users.find((item) => item.id === userId);
-  if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+export async function removeMedia(userId, mediaId) {
+  const user = await getUser(userId);
   const ownerId = user.talentId || user.id;
-  const index = media.findIndex((item) => String(item.id) === String(mediaId) && (item.ownerId === ownerId || item.ownerId === user.id));
-  if (index === -1) throw Object.assign(new Error("Media not found"), { status: 404 });
-  const [removed] = media.splice(index, 1);
-  return removed;
+  const { rows } = await query(
+    `DELETE FROM media
+     WHERE id = $1 AND (owner_id = $2 OR owner_id = $3)
+     RETURNING id, owner_id AS "ownerId", title, image`,
+    [mediaId, ownerId, user.id],
+  );
+  if (!rows[0]) throw Object.assign(new Error("Media not found"), { status: 404 });
+  return rows[0];
 }
 
-export function createLicense(input) {
-  const profile = talent.find((item) => item.id === input.talentId);
+export async function createLicense(input) {
+  const { rows: talentRows } = await query("SELECT * FROM talent WHERE id = $1", [input.talentId]);
+  const profile = talentRows[0];
   if (!profile) throw Object.assign(new Error("Talent not found"), { status: 404 });
   const licenseFee = Number(String(profile.price).replace(/[₹,]/g, ""));
   const protection = 4200;
-  const record = {
-    id: id("lic"),
-    talentId: profile.id,
-    talentName: profile.name,
-    buyerId: input.buyerId || null,
-    usage: String(input.usage || "Film & streaming"),
-    duration: String(input.duration || "12 months"),
-    description: String(input.description || ""),
-    licenseFee,
-    protection,
-    total: licenseFee + protection,
-    status: "pending_creator_approval",
-    createdAt: new Date().toISOString(),
-  };
-  licenses.push(record);
-  return record;
-}
-
-export function listLicenses() {
-  return licenses;
-}
-
-function publicUser(user) {
+  const { rows } = await query(
+    `INSERT INTO licenses (id, talent_id, talent_name, buyer_id, usage, duration, description, license_fee, protection, total, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_creator_approval')
+     RETURNING *`,
+    [
+      id("lic"),
+      profile.id,
+      profile.name,
+      input.buyerId || null,
+      String(input.usage || "Film & streaming"),
+      String(input.duration || "12 months"),
+      String(input.description || ""),
+      licenseFee,
+      protection,
+      licenseFee + protection,
+    ],
+  );
+  const row = rows[0];
   return {
-    id: user.id,
-    role: user.role,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    company: user.company,
-    emailVerified: user.emailVerified,
-    identityVerified: user.identityVerified,
-    age: user.age,
-    ethnicity: user.ethnicity,
-    city: user.city,
-    title: user.title,
-    bio: user.bio,
-    talentId: user.talentId,
+    id: row.id,
+    talentId: row.talent_id,
+    talentName: row.talent_name,
+    buyerId: row.buyer_id,
+    usage: row.usage,
+    duration: row.duration,
+    description: row.description,
+    licenseFee: row.license_fee,
+    protection: row.protection,
+    total: row.total,
+    status: row.status,
+    createdAt: row.created_at,
   };
+}
+
+export async function listLicenses() {
+  const { rows } = await query("SELECT * FROM licenses ORDER BY created_at DESC");
+  return rows.map((row) => ({
+    id: row.id,
+    talentId: row.talent_id,
+    talentName: row.talent_name,
+    buyerId: row.buyer_id,
+    usage: row.usage,
+    duration: row.duration,
+    description: row.description,
+    licenseFee: row.license_fee,
+    protection: row.protection,
+    total: row.total,
+    status: row.status,
+    createdAt: row.created_at,
+  }));
 }
 
 export { SAMPLE_IMAGES };
