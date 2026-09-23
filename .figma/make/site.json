@@ -2,7 +2,7 @@
   "title": "FACERIGHTS — Influencer Marketplace",
   "description": "Connect influencers and buyers in a marketplace where artists can upload their profiles and sell face copyrights for various media uses.",
   "robots": {
-    "index": false
+    "index": true
   },
   "accessibility": {
     "addBypassLinks": false,

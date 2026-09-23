@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: facetroop
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        value: https://www.facetroop.com,https://facetroop.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: facetroop-db
+          property: connectionString
+
+databases:
+  - name: facetroop-db
+    plan: free
