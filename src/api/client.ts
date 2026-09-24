@@ -40,6 +40,20 @@ export function verifyLoginOtp(email: string, code: string) {
   });
 }
 
+export function requestSignupOtp(payload: { channel?: "email"; email: string }) {
+  return request<{ channel: string; target: string; sent: boolean; delivered: boolean; devOtp?: string }>("/api/signup/otp", {
+    method: "POST",
+    body: JSON.stringify({ channel: "email", ...payload }),
+  });
+}
+
+export function verifySignupOtp(payload: { channel?: "email"; email: string; code: string }) {
+  return request<{ channel: string; verified: boolean }>("/api/signup/verify", {
+    method: "POST",
+    body: JSON.stringify({ channel: "email", ...payload }),
+  });
+}
+
 export function verifyUser(userId: string, field: "email" | "identity") {
   return request<{ user: User }>("/api/verify", {
     method: "POST",

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { Role, User } from "../types";
-import { registerUser } from "../api/client";
+import { registerUser, requestSignupOtp, verifySignupOtp } from "../api/client";
 import portraits from "../data/portraits";
 import Field from "../components/Field";
 import Icon from "../components/Icon";
 import Logo from "../components/Logo";
+import OtpModal from "../components/OtpModal";
 import VerifyField from "../components/VerifyField";
 
 export default function Register({
@@ -16,9 +17,31 @@ export default function Register({
   onBack: () => void;
   onContinue: (user: User) => void;
 }) {
-  const [verified, setVerified] = useState({ email: false, identity: false });
+  const [verified, setVerified] = useState({ email: false });
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [otp, setOtp] = useState<{
+    preview: string;
+    target: string;
+    error: string;
+    busy: boolean;
+  } | null>(null);
   const sideImage = role === "artist" ? portraits[2].image : portraits[1].image;
+
+  async function sendOtp() {
+    setError("");
+    setBusy(true);
+    try {
+      const result = await requestSignupOtp({ channel: "email", email });
+      setOtp({ preview: result.devOtp || "", target: result.target, error: "", busy: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send verification code");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#152015] text-white">
@@ -56,16 +79,20 @@ export default function Register({
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
                 setError("");
+                if (!verified.email) {
+                  setError("Verify your email before continuing");
+                  return;
+                }
                 try {
                   const { user } = await registerUser({
                     role,
                     name: form.get("name"),
-                    phone: form.get("phone"),
-                    email: form.get("email"),
+                    phone,
+                    email,
                     company: form.get("company"),
                     gstin: form.get("gstin"),
                     emailVerified: verified.email,
-                    identityVerified: verified.identity,
+                    identityVerified: false,
                   });
                   onContinue(user);
                 } catch (err) {
@@ -75,23 +102,18 @@ export default function Register({
               className="mt-10 grid gap-5 sm:grid-cols-2"
             >
               <Field name="name" label="Full name" placeholder="Enter legal name" />
-              <Field name="phone" label="Phone number" placeholder="+91 98765 43210" />
+              <Field name="phone" type="tel" inputMode="tel" autoComplete="tel" label="Phone number" placeholder="+91 98765 43210" value={phone} onChange={setPhone} />
               <div className="sm:col-span-2">
                 <VerifyField
                   name="email"
                   type="email"
                   label="Email address"
                   placeholder="name@email.com"
+                  value={email}
+                  onChange={setEmail}
                   verified={verified.email}
-                  onVerify={() => setVerified((v) => ({ ...v, email: true }))}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <VerifyField
-                  label="Aadhaar ID"
-                  placeholder="XXXX XXXX XXXX"
-                  verified={verified.identity}
-                  onVerify={() => setVerified((v) => ({ ...v, identity: true }))}
+                  busy={busy}
+                  onVerify={() => sendOtp()}
                 />
               </div>
               {role === "buyer" && (
@@ -114,6 +136,29 @@ export default function Register({
           </div>
         </section>
       </div>
+      {otp ? (
+        <OtpModal
+          title="Verify your email"
+          description={`Enter the 6-digit code sent to ${otp.target}.`}
+          preview={otp.preview}
+          busy={otp.busy}
+          error={otp.error}
+          onClose={() => setOtp(null)}
+          onResend={() => sendOtp()}
+          onSubmit={async (code) => {
+            setOtp((current) => (current ? { ...current, busy: true, error: "" } : current));
+            try {
+              await verifySignupOtp({ channel: "email", email, code });
+              setVerified({ email: true });
+              setOtp(null);
+            } catch (err) {
+              setOtp((current) =>
+                current ? { ...current, busy: false, error: err instanceof Error ? err.message : "Could not verify code" } : current,
+              );
+            }
+          }}
+        />
+      ) : null}
     </main>
   );
 }

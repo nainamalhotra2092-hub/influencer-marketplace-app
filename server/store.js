@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { query, withTransaction } from "./db.js";
-import { mailConfigured, sendLoginOtp } from "./mail.js";
+import { mailConfigured, sendLoginOtp, sendOtpEmail } from "./mail.js";
 
 const SAMPLE_IMAGES = [
   "https://images.unsplash.com/photo-1535579710123-3c0f261c474e?auto=format&fit=crop&w=900&q=85",
@@ -408,4 +408,76 @@ export async function updateAdminTalent(adminUserId, talentId, input) {
   );
   if (!rows[0]) throw Object.assign(new Error("Talent not found"), { status: 404 });
   return publicTalent(rows[0]);
+}
+
+function signupEmail(input) {
+  const email = String(input.email || "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    throw Object.assign(new Error("Enter a valid email address"), { status: 400 });
+  }
+  return email;
+}
+
+export async function requestSignupOtp(input) {
+  const channel = "email";
+  const target = signupEmail(input);
+
+  const existing = await query("SELECT id FROM users WHERE email = $1", [target]);
+  if (existing.rows[0]) {
+    throw Object.assign(new Error("An account with this email already exists"), { status: 409 });
+  }
+
+  const recent = await query("SELECT created_at FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+  if (recent.rows[0]) {
+    const ageMs = Date.now() - new Date(recent.rows[0].created_at).getTime();
+    if (ageMs < 30_000) {
+      throw Object.assign(new Error("Please wait a few seconds before requesting another code"), { status: 429 });
+    }
+  }
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  await query(
+    `INSERT INTO signup_otps (target, channel, code_hash, expires_at, attempts, created_at)
+     VALUES ($1, $2, $3, $4, 0, NOW())
+     ON CONFLICT (target, channel) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0, created_at = NOW()`,
+    [target, channel, hashOtp(`${channel}:${target}`, code), expiresAt.toISOString()],
+  );
+
+  const delivered = (await sendOtpEmail(target, code, "signup")).delivered;
+  return {
+    channel,
+    target,
+    sent: true,
+    delivered,
+    ...(delivered || mailConfigured() ? {} : { devOtp: code }),
+  };
+}
+
+export async function verifySignupOtp(input) {
+  const channel = "email";
+  const target = signupEmail(input);
+  const code = String(input.code || "").trim();
+  if (!/^\d{6}$/.test(code)) {
+    throw Object.assign(new Error("Enter the 6-digit code"), { status: 400 });
+  }
+
+  const otp = await query("SELECT * FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+  const row = otp.rows[0];
+  if (!row) throw Object.assign(new Error("Request a new verification code"), { status: 400 });
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+    throw Object.assign(new Error("That code has expired. Request a new one"), { status: 400 });
+  }
+  if (row.attempts >= 5) {
+    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+    throw Object.assign(new Error("Too many attempts. Request a new code"), { status: 400 });
+  }
+  if (!hashesMatch(row.code_hash, hashOtp(`${channel}:${target}`, code))) {
+    await query("UPDATE signup_otps SET attempts = attempts + 1 WHERE target = $1 AND channel = $2", [target, channel]);
+    throw Object.assign(new Error("That code is incorrect"), { status: 401 });
+  }
+
+  await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+  return { channel, verified: true };
 }

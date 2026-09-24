@@ -83,3 +83,13 @@ ALTER TABLE talent ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FA
 UPDATE talent
 SET proposed_price = CAST(NULLIF(regexp_replace(price, '[^0-9]', '', 'g'), '') AS INTEGER)
 WHERE proposed_price IS NULL;
+
+CREATE TABLE IF NOT EXISTS signup_otps (
+  target TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'aadhaar')),
+  code_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (target, channel)
+);

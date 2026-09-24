@@ -24,14 +24,14 @@ function createTransport() {
   });
 }
 
-export async function sendLoginOtp(email, code) {
+export async function sendOtpEmail(email, code, purpose = "login") {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || "FACETROOP <noreply@facetroop.com>";
-  const subject = "Your FACETROOP login code";
-  const text = `Your one-time login code is ${code}. It expires in 10 minutes. If you did not request this, you can ignore this email.`;
+  const subject = purpose === "signup" ? "Your FACETROOP email verification code" : "Your FACETROOP login code";
+  const text = `Your one-time code is ${code}. It expires in 10 minutes. If you did not request this, you can ignore this email.`;
   const html = `
     <div style="font-family:Georgia,serif;background:#f4f1e9;padding:32px;color:#172016">
       <p style="letter-spacing:.16em;font-size:12px;text-transform:uppercase;font-weight:700">FACETROOP</p>
-      <h1 style="font-size:28px;margin:12px 0 16px">Your login code</h1>
+      <h1 style="font-size:28px;margin:12px 0 16px">Your verification code</h1>
       <p style="font-size:32px;letter-spacing:.24em;font-weight:700">${code}</p>
       <p style="color:#5e685c">This code expires in 10 minutes.</p>
     </div>
@@ -39,10 +39,14 @@ export async function sendLoginOtp(email, code) {
 
   const transport = createTransport();
   if (!transport) {
-    console.log(`[login-otp] SMTP is not configured. Code for ${email}: ${code}`);
+    console.log(`[${purpose}-otp] SMTP is not configured. Code for ${email}: ${code}`);
     return { delivered: false };
   }
 
   await transport.sendMail({ from, to: email, subject, text, html });
   return { delivered: true };
+}
+
+export async function sendLoginOtp(email, code) {
+  return sendOtpEmail(email, code, "login");
 }
