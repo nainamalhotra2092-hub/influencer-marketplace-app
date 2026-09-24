@@ -15,7 +15,10 @@ let pool = null;
 let pglite = null;
 
 if (isPostgres) {
-  pool = new pg.Pool({ connectionString: DATABASE_URL });
+  pool = new pg.Pool({
+    connectionString: DATABASE_URL,
+    ssl: DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+  });
 } else {
   const dataDir = DATABASE_URL.replace(/^pglite:\/\//, "") || "./data/facerights";
   const absolute = path.resolve(root, dataDir);
@@ -49,10 +52,16 @@ export async function withTransaction(work) {
 
 export async function initDatabase() {
   const schema = fs.readFileSync(path.join(root, "server", "schema.sql"), "utf8");
+  const statements = schema
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
   if (pglite) {
     await pglite.exec(schema);
   } else {
-    await query(schema);
+    for (const statement of statements) {
+      await query(`${statement};`);
+    }
   }
   await seedIfEmpty();
 }

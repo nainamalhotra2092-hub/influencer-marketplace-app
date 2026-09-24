@@ -156,6 +156,6 @@ initDatabase()
     });
   })
   .catch((error) => {
-    console.error("Failed to connect to Postgres:", error.message);
+    console.error("Failed to connect to Postgres:", error);
     process.exit(1);
   });
