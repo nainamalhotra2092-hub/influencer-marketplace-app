@@ -5,14 +5,14 @@ import Field from "../components/Field";
 import Icon from "../components/Icon";
 import Logo from "../components/Logo";
 
-export default function Setup({ user, onComplete }: { user: User; onComplete: (user: User) => void }) {
+export default function Setup({ user, onBack, onComplete }: { user: User; onBack: () => void; onComplete: (user: User) => void }) {
   const [error, setError] = useState("");
 
   return (
     <main className="min-h-screen bg-[#f4f1e9] p-6 text-[#172016] md:p-12">
       <div className="mx-auto max-w-5xl">
         <div className="flex items-center justify-between">
-          <Logo />
+          <Logo onClick={onBack} />
           <span className="text-xs font-bold uppercase tracking-[.14em] text-[#778074]">Step 2 of 2</span>
         </div>
         <div className="mt-16 grid gap-12 lg:grid-cols-[.75fr_1.25fr]">
@@ -28,7 +28,7 @@ export default function Setup({ user, onComplete }: { user: User; onComplete: (u
               setError("");
               try {
                 const { user: next } = await completeProfile(user.id, {
-                  age: form.get("age"),
+                  dob: form.get("dob"),
                   ethnicity: form.get("ethnicity"),
                   city: form.get("city"),
                   title: form.get("title"),
@@ -41,10 +41,10 @@ export default function Setup({ user, onComplete }: { user: User; onComplete: (u
             }}
             className="grid gap-5 rounded-[2rem] bg-white p-7 shadow-[0_20px_70px_rgba(35,45,30,.08)] sm:grid-cols-2 md:p-10"
           >
-            <Field name="age" label="Age" placeholder="26" type="number" />
+            <Field name="dob" label="Date of birth" placeholder="" type="date" defaultValue={user.dob || ""} />
             <label>
               <span className="mb-2 block text-xs font-bold uppercase tracking-[.1em] text-[#687266]">Ethnicity</span>
-              <select name="ethnicity" required className="w-full rounded-xl border border-[#d5d9d0] bg-white px-4 py-3.5 text-sm outline-none">
+              <select name="ethnicity" required defaultValue={user.ethnicity || ""} className="w-full rounded-xl border border-[#d5d9d0] bg-white px-4 py-3.5 text-sm outline-none">
                 <option value="">Select ethnicity</option>
                 <option>South Asian</option>
                 <option>East Asian</option>
@@ -53,13 +53,14 @@ export default function Setup({ user, onComplete }: { user: User; onComplete: (u
                 <option>Mixed</option>
               </select>
             </label>
-            <Field name="city" label="City" placeholder="Mumbai" />
-            <Field name="title" label="Professional title" placeholder="Actor, artist, creator..." />
+            <Field name="city" label="City" placeholder="Mumbai" defaultValue={user.city || ""} />
+            <Field name="title" label="Professional title" placeholder="Actor, artist, creator..." defaultValue={user.title || ""} />
             <label className="sm:col-span-2">
               <span className="mb-2 block text-xs font-bold uppercase tracking-[.1em] text-[#687266]">Short bio</span>
               <textarea
                 name="bio"
                 rows={4}
+                defaultValue={user.bio || ""}
                 placeholder="Tell buyers about your work and interests..."
                 className="w-full resize-none rounded-xl border border-[#d5d9d0] px-4 py-3.5 text-sm outline-none"
               />

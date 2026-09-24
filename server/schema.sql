@@ -86,10 +86,45 @@ WHERE proposed_price IS NULL;
 
 CREATE TABLE IF NOT EXISTS signup_otps (
   target TEXT NOT NULL,
-  channel TEXT NOT NULL CHECK (channel IN ('email', 'aadhaar')),
+  channel TEXT NOT NULL CHECK (channel IN ('email')),
   code_hash TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (target, channel)
 );
+
+DELETE FROM signup_otps WHERE channel <> 'email';
+ALTER TABLE signup_otps DROP CONSTRAINT IF EXISTS signup_otps_channel_check;
+ALTER TABLE signup_otps ADD CONSTRAINT signup_otps_channel_check CHECK (channel IN ('email'));
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dob DATE;
+ALTER TABLE talent ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT '';
+ALTER TABLE talent ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS shortlists (
+  buyer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  talent_id TEXT NOT NULL REFERENCES talent(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (buyer_id, talent_id)
+);
+
+CREATE INDEX IF NOT EXISTS shortlists_buyer_idx ON shortlists (buyer_id);
+CREATE INDEX IF NOT EXISTS shortlists_talent_idx ON shortlists (talent_id);
+
+UPDATE talent SET city = 'Mumbai', bio = 'Actor and creator based in Mumbai.' WHERE id = 'tal_aanya' AND city = '';
+UPDATE talent SET city = 'Delhi', bio = 'Screen actor and commercial model.' WHERE id = 'tal_arjun' AND city = '';
+UPDATE talent SET city = 'Kolkata', bio = 'Independent artist and musician.' WHERE id = 'tal_mira' AND city = '';
+UPDATE talent SET city = 'Bengaluru', bio = 'Creator and live performer.' WHERE id = 'tal_kabir' AND city = '';
+UPDATE talent SET city = 'Mumbai', bio = 'Fashion model and film actor.' WHERE id = 'tal_tara' AND city = '';
+UPDATE talent SET city = 'Pune', bio = 'Actor and voice artist.' WHERE id = 'tal_dev' AND city = '';
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS instagram TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS followers TEXT NOT NULL DEFAULT '';
+ALTER TABLE talent ADD COLUMN IF NOT EXISTS instagram TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE media ADD COLUMN IF NOT EXISTS cipher BYTEA;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS iv BYTEA;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS tag BYTEA;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT 'image/jpeg';
+ALTER TABLE media ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE;

@@ -26,7 +26,7 @@ export default function PurchaseModal({
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
   const license = profile.agreedPrice ?? parseRupees(profile.price);
-  const protection = profile.processingFee ?? 0;
+  const protection = Math.round(license * 0.1);
   const total = license + protection;
 
   return (
@@ -109,7 +109,7 @@ export default function PurchaseModal({
                 <strong>{profile.price}</strong>
               </div>
               <div className="mt-3 flex justify-between text-sm text-[#687563]">
-                <span>Buyer processing fee</span>
+                <span>Buyer processing fee (10%)</span>
                 <span>{formatRupees(protection)}</span>
               </div>
               <div className="mt-5 flex items-end justify-between border-t border-[#ccd6c0] pt-5">

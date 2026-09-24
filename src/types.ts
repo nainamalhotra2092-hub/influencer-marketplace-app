@@ -1,5 +1,5 @@
 export type Role = "artist" | "buyer" | "admin";
-export type Screen = "intro" | "login" | "register" | "setup" | "artist" | "buyer" | "admin";
+export type Screen = "intro" | "login" | "register" | "setup" | "artist" | "profile" | "buyer" | "admin";
 
 export type User = {
   id: string;
@@ -10,11 +10,14 @@ export type User = {
   company?: string;
   emailVerified?: boolean;
   identityVerified?: boolean;
+  dob?: string;
   age?: number | null;
   ethnicity?: string;
   city?: string;
   title?: string;
   bio?: string;
+  instagram?: string;
+  followers?: string;
   talentId?: string | null;
 };
 
@@ -27,6 +30,11 @@ export type Portrait = {
   collaborations: number;
   tags: string[];
   age: number;
+  city?: string;
+  bio?: string;
+  instagram?: string;
+  ethnicity?: string;
+  shortlisted?: boolean;
   price: string;
   proposedPrice?: number;
   agreedPrice?: number;
@@ -38,4 +46,5 @@ export type Upload = {
   id: number;
   title: string;
   image: string;
+  primary?: boolean;
 };

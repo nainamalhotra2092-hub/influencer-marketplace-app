@@ -43,7 +43,7 @@ export default function Login({
           <img src={portraits[3].image} className="absolute inset-0 h-full w-full object-cover opacity-50" alt="" />
           <div className="absolute inset-0 bg-gradient-to-b from-[#142014]/50 to-[#142014]/95" />
           <div className="relative">
-            <Logo dark />
+            <Logo dark onClick={onBack} />
           </div>
           <div className="relative">
             <p className="mb-4 text-xs font-bold uppercase tracking-[.18em] text-[#c9ff44]">Welcome back</p>
@@ -82,11 +82,19 @@ export default function Login({
                   onSubmit={async (e) => {
                     e.preventDefault();
                     const form = new FormData(e.currentTarget);
-                    await sendCode(String(form.get("email") || ""));
+                    await sendCode(String(form.get("email") || email));
                   }}
                   className="mt-10 grid gap-5"
                 >
-                  <Field name="email" type="email" autoComplete="email" label="Email address" placeholder="name@email.com" />
+                  <Field
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    label="Email address"
+                    placeholder="name@email.com"
+                    value={email}
+                    onChange={setEmail}
+                  />
                   {error ? <p className="text-sm text-[#9a3d2f]">{error}</p> : null}
                   <button disabled={busy} className="mt-3 flex items-center justify-center gap-3 rounded-full bg-[#172016] px-7 py-4 font-semibold text-white hover:bg-[#273526] disabled:opacity-60">
                     {busy ? "Sending code..." : "Send login code"} <Icon name="arrow" size={18} />

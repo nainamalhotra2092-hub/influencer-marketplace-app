@@ -40,24 +40,17 @@ export function verifyLoginOtp(email: string, code: string) {
   });
 }
 
-export function requestSignupOtp(payload: { channel?: "email"; email: string }) {
-  return request<{ channel: string; target: string; sent: boolean; delivered: boolean; devOtp?: string }>("/api/signup/otp", {
+export function requestSignupOtp(email: string) {
+  return request<{ target: string; sent: boolean; delivered: boolean; devOtp?: string }>("/api/signup/otp", {
     method: "POST",
-    body: JSON.stringify({ channel: "email", ...payload }),
+    body: JSON.stringify({ email }),
   });
 }
 
-export function verifySignupOtp(payload: { channel?: "email"; email: string; code: string }) {
-  return request<{ channel: string; verified: boolean }>("/api/signup/verify", {
+export function verifySignupOtp(email: string, code: string) {
+  return request<{ verified: boolean }>("/api/signup/verify", {
     method: "POST",
-    body: JSON.stringify({ channel: "email", ...payload }),
-  });
-}
-
-export function verifyUser(userId: string, field: "email" | "identity") {
-  return request<{ user: User }>("/api/verify", {
-    method: "POST",
-    body: JSON.stringify({ userId, field }),
+    body: JSON.stringify({ email, code }),
   });
 }
 
@@ -68,13 +61,29 @@ export function completeProfile(userId: string, payload: Record<string, unknown>
   });
 }
 
-export function fetchTalent(params: { query: string; gender: string; categories: string[]; ages: string[] }) {
+export function fetchTalent(params: {
+  query: string;
+  gender: string;
+  categories: string[];
+  ages: string[];
+  buyerId?: string;
+  shortlistedOnly?: boolean;
+}) {
   const search = new URLSearchParams();
   if (params.query) search.set("query", params.query);
   if (params.gender) search.set("gender", params.gender);
   if (params.categories.length) search.set("categories", params.categories.join(","));
   if (params.ages.length) search.set("ages", params.ages.join(","));
+  if (params.buyerId) search.set("buyerId", params.buyerId);
+  if (params.shortlistedOnly) search.set("shortlisted", "1");
   return request<{ results: Portrait[] }>(`/api/talent?${search.toString()}`);
+}
+
+export function toggleShortlist(userId: string, talentId: string) {
+  return request<{ talentId: string; shortlisted: boolean; shortlists: number }>("/api/shortlists", {
+    method: "POST",
+    body: JSON.stringify({ userId, talentId }),
+  });
 }
 
 export function fetchStudio(userId: string) {
@@ -86,19 +95,36 @@ export function fetchStudio(userId: string) {
   }>(`/api/users/${userId}/studio`);
 }
 
-export function addStudioMedia(userId: string) {
-  return request<{ media: Upload }>(`/api/users/${userId}/media`, { method: "POST" });
+export function addStudioMedia(userId: string, payload: { data: string; mime: string; name: string }) {
+  return request<{ media: Upload }>(`/api/users/${userId}/media`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function deleteStudioMedia(userId: string, mediaId: number) {
   return request<{ media: Upload }>(`/api/users/${userId}/media/${mediaId}`, { method: "DELETE" });
 }
 
+export function setStudioPrimary(userId: string, mediaId: number) {
+  return request<{ media: Upload }>(`/api/users/${userId}/media/${mediaId}/primary`, { method: "POST" });
+}
+
 export function fetchAdminTalent(userId: string) {
   return request<{ results: Portrait[] }>(`/api/admin/talent?userId=${encodeURIComponent(userId)}`);
 }
 
-export function updateAdminTalent(userId: string, talentId: string, payload: { verified: boolean; agreedPrice: number; processingFee: number }) {
+export function fetchAdminTalentDetail(userId: string, talentId: string) {
+  return request<{ talent: Portrait; uploads: Upload[] }>(
+    `/api/admin/talent/${encodeURIComponent(talentId)}?userId=${encodeURIComponent(userId)}`,
+  );
+}
+
+export function fetchTalentDetail(talentId: string) {
+  return request<{ talent: Portrait; uploads: Upload[] }>(`/api/talent/${encodeURIComponent(talentId)}`);
+}
+
+export function updateAdminTalent(userId: string, talentId: string, payload: { verified: boolean; agreedPrice: number }) {
   return request<{ talent: Portrait }>(`/api/admin/talent/${talentId}`, {
     method: "PATCH",
     body: JSON.stringify({ userId, ...payload }),

@@ -17,9 +17,8 @@ export default function Register({
   onBack: () => void;
   onContinue: (user: User) => void;
 }) {
-  const [verified, setVerified] = useState({ email: false });
+  const [emailVerified, setEmailVerified] = useState(false);
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [otp, setOtp] = useState<{
@@ -34,7 +33,7 @@ export default function Register({
     setError("");
     setBusy(true);
     try {
-      const result = await requestSignupOtp({ channel: "email", email });
+      const result = await requestSignupOtp(email);
       setOtp({ preview: result.devOtp || "", target: result.target, error: "", busy: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send verification code");
@@ -50,7 +49,7 @@ export default function Register({
           <img src={sideImage} className="absolute inset-0 h-full w-full object-cover opacity-50" alt="" />
           <div className="absolute inset-0 bg-gradient-to-b from-[#142014]/50 to-[#142014]/95" />
           <div className="relative">
-            <Logo dark />
+            <Logo dark onClick={onBack} />
           </div>
           <div className="relative">
             <p className="mb-4 text-xs font-bold uppercase tracking-[.18em] text-[#c9ff44]">{role === "artist" ? "For creators" : "For buyers"}</p>
@@ -79,7 +78,7 @@ export default function Register({
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
                 setError("");
-                if (!verified.email) {
+                if (!emailVerified) {
                   setError("Verify your email before continuing");
                   return;
                 }
@@ -87,12 +86,11 @@ export default function Register({
                   const { user } = await registerUser({
                     role,
                     name: form.get("name"),
-                    phone,
+                    phone: form.get("phone"),
                     email,
                     company: form.get("company"),
                     gstin: form.get("gstin"),
-                    emailVerified: verified.email,
-                    identityVerified: false,
+                    emailVerified,
                   });
                   onContinue(user);
                 } catch (err) {
@@ -102,7 +100,7 @@ export default function Register({
               className="mt-10 grid gap-5 sm:grid-cols-2"
             >
               <Field name="name" label="Full name" placeholder="Enter legal name" />
-              <Field name="phone" type="tel" inputMode="tel" autoComplete="tel" label="Phone number" placeholder="+91 98765 43210" value={phone} onChange={setPhone} />
+              <Field name="phone" type="tel" inputMode="tel" autoComplete="tel" label="Phone number" placeholder="+91 98765 43210" />
               <div className="sm:col-span-2">
                 <VerifyField
                   name="email"
@@ -111,7 +109,7 @@ export default function Register({
                   placeholder="name@email.com"
                   value={email}
                   onChange={setEmail}
-                  verified={verified.email}
+                  verified={emailVerified}
                   busy={busy}
                   onVerify={() => sendOtp()}
                 />
@@ -119,7 +117,7 @@ export default function Register({
               {role === "buyer" && (
                 <>
                   <Field name="company" label="Company name" placeholder="Legal company name" />
-                  <Field name="gstin" label="GSTIN" placeholder="22AAAAA0000A1Z5" />
+                  <Field name="gstin" label="GSTIN (optional)" placeholder="22AAAAA0000A1Z5" required={false} />
                 </>
               )}
               <label className="sm:col-span-2 mt-2 flex cursor-pointer items-start gap-3 text-sm leading-6 text-[#646e62]">
@@ -148,8 +146,8 @@ export default function Register({
           onSubmit={async (code) => {
             setOtp((current) => (current ? { ...current, busy: true, error: "" } : current));
             try {
-              await verifySignupOtp({ channel: "email", email, code });
-              setVerified({ email: true });
+              await verifySignupOtp(email, code);
+              setEmailVerified(true);
               setOtp(null);
             } catch (err) {
               setOtp((current) =>

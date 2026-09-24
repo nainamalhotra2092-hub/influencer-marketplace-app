@@ -14,6 +14,10 @@ export type IconName =
   | "user"
   | "grid"
   | "bell"
+  | "bookmark"
+  | "pen"
+  | "camera"
+  | "star"
   | "logout";
 
 const paths: Record<IconName, ReactNode> = {
@@ -95,6 +99,20 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M10 21h4" />
     </>
   ),
+  bookmark: <path d="M7 4h10a1 1 0 0 1 1 1v16l-6-3.5L6 21V5a1 1 0 0 1 1-1Z" />,
+  pen: (
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M4 8h3l2-3h6l2 3h3v11H4V8Z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
+  star: <path d="M12 3 14.8 9.1 21.5 9.9 16.6 14.4 18 21.1 12 17.8 6 21.1 7.4 14.4 2.5 9.9 9.2 9.1Z" />,
   logout: (
     <>
       <path d="M10 5H5v14h5" />
@@ -103,9 +121,9 @@ const paths: Record<IconName, ReactNode> = {
   ),
 };
 
-export default function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+export default function Icon({ name, size = 20, filled = false }: { name: IconName; size?: number; filled?: boolean }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {paths[name]}
     </svg>
   );

@@ -7,6 +7,11 @@ import {
   createLicense,
   getStudio,
   getUser,
+  getMediaFile,
+  getAdminTalentDetail,
+  getAdminMediaFile,
+  getPublicTalentDetail,
+  getPublicTalentMediaFile,
   listAdminTalent,
   listLicenses,
   listTalent,
@@ -14,10 +19,12 @@ import {
   removeMedia,
   requestLoginOtp,
   requestSignupOtp,
+  setPrimaryMedia,
+  backfillPrimaryCovers,
+  toggleShortlist,
   updateAdminTalent,
   verifyLoginOtp,
   verifySignupOtp,
-  verifyUser,
 } from "./store.js";
 
 const PORT = Number(process.env.PORT || process.env.API_PORT || 3001);
@@ -48,10 +55,29 @@ function notFound(res, req) {
   send(res, 404, { error: "Not found" }, req);
 }
 
-function readBody(req) {
+function sendBinary(res, status, buffer, mime, req) {
+  res.writeHead(status, {
+    "Content-Type": mime || "application/octet-stream",
+    "Content-Length": buffer.length,
+    "Cache-Control": "private, no-store",
+    "Access-Control-Allow-Origin": corsOrigin(req || { headers: {} }),
+  });
+  res.end(buffer);
+}
+
+function readBody(req, maxBytes = 12 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(Object.assign(new Error("File is too large"), { status: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => {
       if (!chunks.length) return resolve({});
       try {
@@ -98,8 +124,21 @@ async function handle(req, res) {
         gender: searchParams.get("gender") || "All",
         categories: csv(searchParams.get("categories")),
         ages: csv(searchParams.get("ages")),
+        buyerId: searchParams.get("buyerId") || "",
+        shortlistedOnly: searchParams.get("shortlisted") === "1",
       });
       return send(res, 200, { results }, req);
+    }
+
+    const publicTalentMedia = pathname.match(/^\/api\/talent\/([^/]+)\/media\/([^/]+)\/file$/);
+    if (req.method === "GET" && publicTalentMedia) {
+      const file = await getPublicTalentMediaFile(publicTalentMedia[1], publicTalentMedia[2]);
+      return sendBinary(res, 200, file.buffer, file.mime, req);
+    }
+
+    const publicTalentDetail = pathname.match(/^\/api\/talent\/([^/]+)$/);
+    if (req.method === "GET" && publicTalentDetail) {
+      return send(res, 200, await getPublicTalentDetail(publicTalentDetail[1]), req);
     }
 
     if (req.method === "POST" && pathname === "/api/register") {
@@ -127,11 +166,6 @@ async function handle(req, res) {
       return send(res, 200, await verifySignupOtp(body), req);
     }
 
-    if (req.method === "POST" && pathname === "/api/verify") {
-      const body = await readBody(req);
-      return send(res, 200, { user: await verifyUser(body.userId, body.field) }, req);
-    }
-
     const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
     if (req.method === "GET" && userMatch) {
       return send(res, 200, { user: await getUser(userMatch[1]) }, req);
@@ -150,12 +184,30 @@ async function handle(req, res) {
 
     const mediaMatch = pathname.match(/^\/api\/users\/([^/]+)\/media$/);
     if (req.method === "POST" && mediaMatch) {
-      return send(res, 201, { media: await addMedia(mediaMatch[1]) }, req);
+      const body = await readBody(req);
+      return send(res, 201, { media: await addMedia(mediaMatch[1], body) }, req);
+    }
+
+    const mediaFile = pathname.match(/^\/api\/users\/([^/]+)\/media\/([^/]+)\/file$/);
+    if (req.method === "GET" && mediaFile) {
+      const file = await getMediaFile(mediaFile[1], mediaFile[2]);
+      return sendBinary(res, 200, file.buffer, file.mime, req);
+    }
+
+    const mediaPrimary = pathname.match(/^\/api\/users\/([^/]+)\/media\/([^/]+)\/primary$/);
+    if (req.method === "POST" && mediaPrimary) {
+      return send(res, 200, { media: await setPrimaryMedia(mediaPrimary[1], mediaPrimary[2]) }, req);
     }
 
     const mediaDelete = pathname.match(/^\/api\/users\/([^/]+)\/media\/([^/]+)$/);
     if (req.method === "DELETE" && mediaDelete) {
       return send(res, 200, { media: await removeMedia(mediaDelete[1], mediaDelete[2]) }, req);
+    }
+
+    const adminMediaFile = pathname.match(/^\/api\/admin\/talent\/([^/]+)\/media\/([^/]+)\/file$/);
+    if (req.method === "GET" && adminMediaFile) {
+      const file = await getAdminMediaFile(searchParams.get("userId") || "", adminMediaFile[1], adminMediaFile[2]);
+      return sendBinary(res, 200, file.buffer, file.mime, req);
     }
 
     if (req.method === "GET" && pathname === "/api/admin/talent") {
@@ -164,6 +216,9 @@ async function handle(req, res) {
     }
 
     const adminTalent = pathname.match(/^\/api\/admin\/talent\/([^/]+)$/);
+    if (req.method === "GET" && adminTalent) {
+      return send(res, 200, await getAdminTalentDetail(searchParams.get("userId") || "", adminTalent[1]), req);
+    }
     if (req.method === "PATCH" && adminTalent) {
       const body = await readBody(req);
       return send(res, 200, { talent: await updateAdminTalent(body.userId, adminTalent[1], body) }, req);
@@ -178,6 +233,11 @@ async function handle(req, res) {
       return send(res, 201, { license: await createLicense(body) }, req);
     }
 
+    if (req.method === "POST" && pathname === "/api/shortlists") {
+      const body = await readBody(req);
+      return send(res, 200, await toggleShortlist(body.userId, body.talentId), req);
+    }
+
     if (pathname.startsWith("/api/")) return notFound(res, req);
     if (serveApp(req, res, pathname)) return;
     return notFound(res, req);
@@ -187,6 +247,7 @@ async function handle(req, res) {
 }
 
 initDatabase()
+  .then(() => backfillPrimaryCovers())
   .then(() => {
     http.createServer(handle).listen(PORT, "0.0.0.0", () => {
       console.log(`FACETROOP running at http://localhost:${PORT}`);

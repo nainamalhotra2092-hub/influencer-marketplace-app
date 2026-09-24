@@ -21,14 +21,9 @@ export default function Intro({
           <a href="#safety">Safety</a>
           <a href="#talent">For talent</a>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onLogin} className="rounded-full border border-[#bcc3b8] px-5 py-2.5 text-sm font-semibold transition hover:bg-white">
-            Login
-          </button>
-          <button onClick={() => onChoose("buyer")} className="rounded-full border border-[#bcc3b8] px-5 py-2.5 text-sm font-semibold transition hover:bg-white">
-            Buyer sign in
-          </button>
-        </div>
+        <button onClick={onLogin} className="rounded-full border border-[#bcc3b8] px-5 py-2.5 text-sm font-semibold transition hover:bg-white">
+          Login
+        </button>
       </nav>
 
       <section className="mx-auto grid max-w-[1440px] gap-12 px-6 pb-16 pt-12 lg:grid-cols-[1.05fr_.95fr] lg:px-12 lg:pt-20">

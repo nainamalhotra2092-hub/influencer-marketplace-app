@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { query, withTransaction } from "./db.js";
+import { decryptImage, encryptImage } from "./media-crypto.js";
 import { mailConfigured, sendLoginOtp, sendOtpEmail } from "./mail.js";
 
 const SAMPLE_IMAGES = [
@@ -16,6 +17,48 @@ function id(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function formatDob(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 10);
+  if (value instanceof Date) {
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(value.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return String(value).slice(0, 10);
+}
+
+function parseDob(value) {
+  const text = formatDob(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw Object.assign(new Error("Enter a valid date of birth"), { status: 400 });
+  }
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw Object.assign(new Error("Enter a valid date of birth"), { status: 400 });
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date > today) {
+    throw Object.assign(new Error("Date of birth cannot be in the future"), { status: 400 });
+  }
+  return text;
+}
+
+function ageFromDob(value) {
+  const text = parseDob(value);
+  const [year, month, day] = text.split("-").map(Number);
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age -= 1;
+  if (age < 0 || age > 120) {
+    throw Object.assign(new Error("Enter a valid date of birth"), { status: 400 });
+  }
+  return age;
+}
+
 function publicUser(row) {
   if (!row) return null;
   return {
@@ -27,11 +70,14 @@ function publicUser(row) {
     company: row.company,
     emailVerified: row.email_verified,
     identityVerified: row.identity_verified,
+    dob: formatDob(row.dob),
     age: row.age,
     ethnicity: row.ethnicity,
     city: row.city,
     title: row.title,
     bio: row.bio,
+    instagram: row.instagram || "",
+    followers: row.followers || "",
     talentId: row.talent_id,
   };
 }
@@ -42,6 +88,18 @@ function rupeesFromText(value) {
 
 function rupeesLabel(amount) {
   return `₹${Number(amount || 0).toLocaleString("en-IN")}`;
+}
+
+function normalizeInstagram(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  const handle = text.replace(/^@/, "").replace(/^(www\.)?instagram\.com\//i, "");
+  return handle ? `https://instagram.com/${handle}` : "";
+}
+
+function buyerProcessingFee(agreed) {
+  return Math.max(0, Math.round(Number(agreed || 0) * 0.1));
 }
 
 function publicTalent(row) {
@@ -56,11 +114,16 @@ function publicTalent(row) {
     collaborations: row.collaborations,
     tags: row.tags,
     age: row.age,
+    city: row.city || "",
+    bio: row.bio || "",
+    instagram: row.instagram || "",
+    shortlisted: Boolean(row.shortlisted),
     price: rupeesLabel(agreed),
     proposedPrice: proposed,
     agreedPrice: agreed,
-    processingFee: row.processing_fee ?? 0,
+    processingFee: buyerProcessingFee(agreed),
     verified: Boolean(row.verified),
+    ethnicity: row.ethnicity || "",
     views: row.views,
     shortlists: row.shortlists,
   };
@@ -87,22 +150,31 @@ function ageSql(ranges) {
   return { sql: `(${clauses.join(" OR ")})`, params };
 }
 
-export async function listTalent({ query: q = "", gender = "All", categories = [], ages = [] } = {}) {
+export async function listTalent({ query: q = "", gender = "All", categories = [], ages = [], buyerId = "", shortlistedOnly = false } = {}) {
   const needle = String(q).trim();
   const age = ageSql(ages);
-  const params = [needle, gender, categories];
+  const params = [needle, gender, categories, buyerId || "", Boolean(shortlistedOnly)];
   const { rows } = await query(
-    `SELECT * FROM talent
+    `SELECT talent.*,
+            ($4 <> '' AND EXISTS (
+              SELECT 1 FROM shortlists s WHERE s.talent_id = talent.id AND s.buyer_id = $4
+            )) AS shortlisted
+     FROM talent
      WHERE (
        $1 = ''
        OR name ILIKE '%' || $1 || '%'
        OR type ILIKE '%' || $1 || '%'
+       OR city ILIKE '%' || $1 || '%'
+       OR bio ILIKE '%' || $1 || '%'
        OR EXISTS (SELECT 1 FROM unnest(tags) AS tag WHERE tag ILIKE '%' || $1 || '%')
      )
      AND ($2 = 'All' OR $2 = ANY(tags))
      AND (cardinality($3::text[]) = 0 OR tags && $3::text[])
      AND verified = TRUE
      AND ${age.sql}
+     AND ($5 = FALSE OR EXISTS (
+       SELECT 1 FROM shortlists s WHERE s.talent_id = talent.id AND s.buyer_id = $4
+     ))
      ORDER BY created_at DESC`,
     params,
   );
@@ -130,7 +202,7 @@ export async function registerUser(input) {
         String(input.company || "").trim(),
         String(input.gstin || "").trim(),
         Boolean(input.emailVerified),
-        Boolean(input.identityVerified),
+        false,
       ],
     );
     return publicUser(rows[0]);
@@ -230,61 +302,120 @@ export async function verifyLoginOtp(emailInput, codeInput) {
   return publicUser(rows[0]);
 }
 
-export async function verifyUser(userId, field) {
-  const sql =
-    field === "email"
-      ? "UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING *"
-      : "UPDATE users SET identity_verified = TRUE WHERE id = $1 RETURNING *";
-  const { rows } = await query(sql, [userId]);
-  if (!rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
-  return publicUser(rows[0]);
-}
-
 export async function completeProfile(userId, input) {
   return withTransaction(async (db) => {
     const existing = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
     if (!existing.rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
     const user = existing.rows[0];
     let talentId = user.talent_id;
-    const age = Number(input.age) || null;
-    const title = String(input.title || "");
+    const dob = parseDob(input.dob);
+    const age = ageFromDob(dob);
+    const title = String(input.title || "").trim();
+    const city = String(input.city || "").trim();
+    const bio = String(input.bio || "").trim();
+    const ethnicity = String(input.ethnicity || "").trim();
+    const instagram = normalizeInstagram(input.instagram);
+    const followers = String(input.followers || "").trim() || "0";
 
     if (user.role === "artist" && !talentId) {
       talentId = id("tal");
       await db.query(
-        `INSERT INTO talent (id, user_id, name, type, image, followers, collaborations, tags, age, price, proposed_price, agreed_price, processing_fee, verified, views, shortlists)
-         VALUES ($1,$2,$3,$4,$5,'0',0, ARRAY['Creator']::text[], $6, '₹28,000', 28000, NULL, 0, FALSE, 0, 0)`,
-        [talentId, userId, user.name, title || "Creator", SAMPLE_IMAGES[0], age || 18],
+        `INSERT INTO talent (id, user_id, name, type, image, followers, collaborations, tags, age, city, bio, instagram, price, proposed_price, agreed_price, processing_fee, verified, views, shortlists)
+         VALUES ($1,$2,$3,$4,$5,$6,0, ARRAY['Creator']::text[], $7, $8, $9, $10, '₹28,000', 28000, NULL, 0, FALSE, 0, 0)`,
+        [talentId, userId, user.name, title || "Creator", SAMPLE_IMAGES[0], followers, age, city, bio, instagram],
+      );
+    } else if (user.role === "artist" && talentId) {
+      await db.query(
+        `UPDATE talent SET type = $2, age = $3, city = $4, bio = $5, instagram = $6, followers = $7 WHERE id = $1`,
+        [talentId, title || "Creator", age, city, bio, instagram, followers],
       );
     }
 
     const updated = await db.query(
       `UPDATE users
-       SET age = $2, ethnicity = $3, city = $4, title = $5, bio = $6, talent_id = $7
+       SET dob = $2, age = $3, ethnicity = $4, city = $5, title = $6, bio = $7, instagram = $8, followers = $9, talent_id = $10
        WHERE id = $1
        RETURNING *`,
-      [userId, age, String(input.ethnicity || ""), String(input.city || ""), title, String(input.bio || ""), talentId],
+      [userId, dob, age, ethnicity, city, title, bio, instagram, followers, talentId],
     );
     return publicUser(updated.rows[0]);
   });
 }
 
+function publicMedia(row, userId) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    ownerId: row.owner_id || row.ownerId,
+    title: row.title,
+    image: row.cipher ? `/api/users/${userId}/media/${row.id}/file` : row.image,
+    primary: Boolean(row.is_primary),
+  };
+}
+
+function coverImageFor(talentId, row) {
+  if (row.cipher) return `/api/talent/${talentId}/media/${row.id}/file`;
+  return row.image;
+}
+
+async function applyPrimaryMedia(user, mediaId) {
+  const ownerId = user.talentId || user.id;
+  const found = await query("SELECT * FROM media WHERE id = $1 AND (owner_id = $2 OR owner_id = $3)", [mediaId, ownerId, user.id]);
+  const row = found.rows[0];
+  if (!row) throw Object.assign(new Error("Media not found"), { status: 404 });
+  await query("UPDATE media SET is_primary = FALSE WHERE owner_id = $1 OR owner_id = $2", [ownerId, user.id]);
+  await query("UPDATE media SET is_primary = TRUE WHERE id = $1", [mediaId]);
+  if (user.talentId) {
+    await query("UPDATE talent SET image = $2 WHERE id = $1", [user.talentId, coverImageFor(user.talentId, row)]);
+  }
+  return publicMedia({ ...row, is_primary: true }, user.id);
+}
+
+async function ensureFirstImagePrimary(user) {
+  const ownerId = user.talentId || user.id;
+  const { rows } = await query(
+    `SELECT id, is_primary FROM media WHERE owner_id = $1 OR owner_id = $2 ORDER BY id ASC`,
+    [ownerId, user.id],
+  );
+  if (!rows.length || rows.some((item) => item.is_primary)) return;
+  await applyPrimaryMedia(user, rows[0].id);
+}
+
+export async function backfillPrimaryCovers() {
+  const { rows } = await query("SELECT id, talent_id FROM users WHERE role = 'artist'");
+  for (const row of rows) {
+    await ensureFirstImagePrimary({ id: row.id, talentId: row.talent_id });
+  }
+}
+
+export async function setPrimaryMedia(userId, mediaId) {
+  const user = await getUser(userId);
+  return applyPrimaryMedia(user, mediaId);
+}
+
 export async function getStudio(userId) {
   const user = await getUser(userId);
+  await ensureFirstImagePrimary(user);
   const ownerId = user.talentId || user.id;
-  const uploads = await query("SELECT id, owner_id AS \"ownerId\", title, image FROM media WHERE owner_id = $1 OR owner_id = $2 ORDER BY id", [
-    ownerId,
-    user.id,
-  ]);
+  const uploads = await query(
+    `SELECT id, owner_id, title, image, cipher, mime, is_primary
+     FROM media WHERE owner_id = $1 OR owner_id = $2 ORDER BY id ASC`,
+    [ownerId, user.id],
+  );
   const card = user.talentId ? await query("SELECT * FROM talent WHERE id = $1", [user.talentId]) : { rows: [] };
   const related = user.talentId
     ? await query("SELECT COUNT(*)::int AS count, COALESCE(SUM(total),0)::int AS earnings FROM licenses WHERE talent_id = $1", [user.talentId])
     : { rows: [{ count: 0, earnings: 0 }] };
+  const talent = card.rows[0];
   const completion = Math.min(100, 40 + uploads.rows.length * 8 + (user.bio ? 12 : 0) + (user.identityVerified ? 12 : 0));
 
   return {
-    user,
-    uploads: uploads.rows,
+    user: {
+      ...user,
+      instagram: user.instagram || talent?.instagram || "",
+      followers: user.followers || talent?.followers || "",
+    },
+    uploads: uploads.rows.map((row) => publicMedia(row, userId)),
     completion,
     stats: {
       views: card.rows[0]?.views ?? 0,
@@ -295,17 +426,52 @@ export async function getStudio(userId) {
   };
 }
 
-export async function addMedia(userId) {
+export async function addMedia(userId, input) {
   const user = await getUser(userId);
   const ownerId = user.talentId || user.id;
-  const { rows: countRows } = await query("SELECT COUNT(*)::int AS count FROM media");
-  const image = SAMPLE_IMAGES[countRows[0].count % SAMPLE_IMAGES.length];
+  const existing = await query("SELECT COUNT(*)::int AS count FROM media WHERE owner_id = $1 OR owner_id = $2", [ownerId, user.id]);
+  if (existing.rows[0].count >= 12) {
+    throw Object.assign(new Error("You can upload up to 12 images"), { status: 400 });
+  }
+
+  const raw = String(input.data || "").replace(/\s/g, "");
+  let buffer;
+  try {
+    buffer = Buffer.from(raw, "base64");
+  } catch {
+    throw Object.assign(new Error("Could not read that image"), { status: 400 });
+  }
+  const encrypted = encryptImage(buffer, input.mime);
+  const title = String(input.name || "Studio photo")
+    .replace(/\.[^.]+$/, "")
+    .trim()
+    .slice(0, 80) || "Studio photo";
+
   const { rows } = await query(
-    `INSERT INTO media (owner_id, title, image) VALUES ($1, 'New expression', $2)
-     RETURNING id, owner_id AS "ownerId", title, image`,
-    [ownerId, image],
+    `INSERT INTO media (owner_id, title, image, cipher, iv, tag, mime, is_primary)
+     VALUES ($1, $2, '', $3, $4, $5, $6, FALSE)
+     RETURNING id, owner_id, title, image, cipher, mime, is_primary`,
+    [ownerId, title, encrypted.cipher, encrypted.iv, encrypted.tag, encrypted.mime],
   );
-  return rows[0];
+  if (existing.rows[0].count === 0) {
+    return applyPrimaryMedia(user, rows[0].id);
+  }
+  return publicMedia(rows[0], userId);
+}
+
+export async function getMediaFile(userId, mediaId) {
+  const user = await getUser(userId);
+  const ownerId = user.talentId || user.id;
+  const { rows } = await query(
+    `SELECT * FROM media WHERE id = $1 AND (owner_id = $2 OR owner_id = $3)`,
+    [mediaId, ownerId, user.id],
+  );
+  const row = rows[0];
+  if (!row) throw Object.assign(new Error("Media not found"), { status: 404 });
+  if (row.cipher && row.iv && row.tag) {
+    return { mime: row.mime || "image/jpeg", buffer: decryptImage(row) };
+  }
+  throw Object.assign(new Error("Media not found"), { status: 404 });
 }
 
 export async function removeMedia(userId, mediaId) {
@@ -314,11 +480,20 @@ export async function removeMedia(userId, mediaId) {
   const { rows } = await query(
     `DELETE FROM media
      WHERE id = $1 AND (owner_id = $2 OR owner_id = $3)
-     RETURNING id, owner_id AS "ownerId", title, image`,
+     RETURNING id, owner_id, title, image, cipher, mime, is_primary`,
     [mediaId, ownerId, user.id],
   );
   if (!rows[0]) throw Object.assign(new Error("Media not found"), { status: 404 });
-  return rows[0];
+  if (rows[0].is_primary) {
+    const remaining = await query(
+      `SELECT id FROM media WHERE owner_id = $1 OR owner_id = $2 ORDER BY id ASC LIMIT 1`,
+      [ownerId, user.id],
+    );
+    if (remaining.rows[0]) {
+      await applyPrimaryMedia(user, remaining.rows[0].id);
+    }
+  }
+  return publicMedia(rows[0], userId);
 }
 
 export async function createLicense(input) {
@@ -326,7 +501,7 @@ export async function createLicense(input) {
   const profile = talentRows[0];
   if (!profile) throw Object.assign(new Error("Talent not found"), { status: 404 });
   const licenseFee = profile.agreed_price ?? profile.proposed_price ?? rupeesFromText(profile.price);
-  const protection = Number(profile.processing_fee) || 0;
+  const protection = buyerProcessingFee(licenseFee);
   const { rows } = await query(
     `INSERT INTO licenses (id, talent_id, talent_name, buyer_id, usage, duration, description, license_fee, protection, total, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_creator_approval')
@@ -395,10 +570,111 @@ export async function listAdminTalent(adminUserId) {
   return rows.map(publicTalent);
 }
 
+export async function getAdminTalentDetail(adminUserId, talentId) {
+  await requireAdmin(adminUserId);
+  const talent = await query("SELECT * FROM talent WHERE id = $1", [talentId]);
+  const row = talent.rows[0];
+  if (!row) throw Object.assign(new Error("Talent not found"), { status: 404 });
+
+  const linked = await query("SELECT * FROM users WHERE id = $1 OR talent_id = $2 LIMIT 1", [row.user_id, row.id]);
+  const person = linked.rows[0];
+  const owners = [...new Set([row.id, row.user_id, person?.id].filter(Boolean))];
+  const media = await query(
+    `SELECT id, owner_id, title, image, cipher, mime FROM media WHERE owner_id = ANY($1::text[]) ORDER BY id`,
+    [owners],
+  );
+
+  return {
+    talent: {
+      ...publicTalent(row),
+      ethnicity: person?.ethnicity || "",
+      city: row.city || person?.city || "",
+      bio: row.bio || person?.bio || "",
+      instagram: row.instagram || person?.instagram || "",
+      followers: row.followers || person?.followers || "0",
+      age: row.age ?? person?.age ?? 0,
+    },
+    uploads: media.rows.map((item) => ({
+      id: item.id,
+      ownerId: item.owner_id,
+      title: item.title,
+      image: item.cipher
+        ? `/api/admin/talent/${row.id}/media/${item.id}/file?userId=${encodeURIComponent(adminUserId)}`
+        : item.image,
+    })),
+  };
+}
+
+export async function getAdminMediaFile(adminUserId, talentId, mediaId) {
+  await requireAdmin(adminUserId);
+  const talent = await query("SELECT id, user_id FROM talent WHERE id = $1", [talentId]);
+  if (!talent.rows[0]) throw Object.assign(new Error("Talent not found"), { status: 404 });
+  const { rows } = await query("SELECT * FROM media WHERE id = $1", [mediaId]);
+  const file = rows[0];
+  if (!file) throw Object.assign(new Error("Media not found"), { status: 404 });
+  const linked = await query("SELECT id FROM users WHERE id = $1 OR talent_id = $2", [talent.rows[0].user_id, talentId]);
+  const allowed = new Set([talent.rows[0].id, talent.rows[0].user_id, ...linked.rows.map((item) => item.id)].filter(Boolean));
+  if (!allowed.has(file.owner_id)) throw Object.assign(new Error("Media not found"), { status: 404 });
+  if (file.cipher && file.iv && file.tag) {
+    return { mime: file.mime || "image/jpeg", buffer: decryptImage(file) };
+  }
+  throw Object.assign(new Error("Media not found"), { status: 404 });
+}
+
+export async function getPublicTalentDetail(talentId) {
+  const talent = await query("SELECT * FROM talent WHERE id = $1 AND verified = TRUE", [talentId]);
+  const row = talent.rows[0];
+  if (!row) throw Object.assign(new Error("Talent not found"), { status: 404 });
+
+  const linked = await query("SELECT * FROM users WHERE id = $1 OR talent_id = $2 LIMIT 1", [row.user_id, row.id]);
+  const person = linked.rows[0];
+  const owners = [...new Set([row.id, row.user_id, person?.id].filter(Boolean))];
+  const media = await query(
+    `SELECT id, owner_id, title, image, cipher, mime FROM media WHERE owner_id = ANY($1::text[]) ORDER BY id`,
+    [owners],
+  );
+
+  return {
+    talent: {
+      ...publicTalent(row),
+      ethnicity: person?.ethnicity || "",
+      city: row.city || person?.city || "",
+      bio: row.bio || person?.bio || "",
+      instagram: row.instagram || person?.instagram || "",
+      followers: row.followers || person?.followers || "0",
+      age: row.age ?? person?.age ?? 0,
+    },
+    uploads: media.rows.map((item) => ({
+      id: item.id,
+      ownerId: item.owner_id,
+      title: item.title,
+      image: item.cipher ? `/api/talent/${row.id}/media/${item.id}/file` : item.image,
+    })),
+  };
+}
+
+export async function getPublicTalentMediaFile(talentId, mediaId) {
+  const talent = await query("SELECT id, user_id, verified FROM talent WHERE id = $1", [talentId]);
+  if (!talent.rows[0]) throw Object.assign(new Error("Talent not found"), { status: 404 });
+  const { rows } = await query("SELECT * FROM media WHERE id = $1", [mediaId]);
+  const file = rows[0];
+  if (!file) throw Object.assign(new Error("Media not found"), { status: 404 });
+  const linked = await query("SELECT id FROM users WHERE id = $1 OR talent_id = $2", [talent.rows[0].user_id, talentId]);
+  const allowed = new Set([talent.rows[0].id, talent.rows[0].user_id, ...linked.rows.map((item) => item.id)].filter(Boolean));
+  if (!allowed.has(file.owner_id)) throw Object.assign(new Error("Media not found"), { status: 404 });
+  if (!talent.rows[0].verified && !file.is_primary) {
+    throw Object.assign(new Error("Media not found"), { status: 404 });
+  }
+  if (file.cipher && file.iv && file.tag) {
+    return { mime: file.mime || "image/jpeg", buffer: decryptImage(file) };
+  }
+  throw Object.assign(new Error("Media not found"), { status: 404 });
+}
+
 export async function updateAdminTalent(adminUserId, talentId, input) {
   await requireAdmin(adminUserId);
   const agreed = Math.max(0, Math.round(Number(input.agreedPrice) || 0));
-  const fee = Math.max(0, Math.round(Number(input.processingFee) || 0));
+  const fee = buyerProcessingFee(agreed);
   const { rows } = await query(
     `UPDATE talent
      SET verified = $2, agreed_price = $3, processing_fee = $4, price = $5
@@ -410,6 +686,25 @@ export async function updateAdminTalent(adminUserId, talentId, input) {
   return publicTalent(rows[0]);
 }
 
+export async function toggleShortlist(userId, talentId) {
+  const user = await getUser(userId);
+  if (user.role !== "buyer") {
+    throw Object.assign(new Error("Only buyers can shortlist talent"), { status: 403 });
+  }
+  const talent = await query("SELECT id FROM talent WHERE id = $1 AND verified = TRUE", [talentId]);
+  if (!talent.rows[0]) throw Object.assign(new Error("Talent not found"), { status: 404 });
+
+  const existing = await query("SELECT 1 FROM shortlists WHERE buyer_id = $1 AND talent_id = $2", [userId, talentId]);
+  if (existing.rows[0]) {
+    await query("DELETE FROM shortlists WHERE buyer_id = $1 AND talent_id = $2", [userId, talentId]);
+  } else {
+    await query("INSERT INTO shortlists (buyer_id, talent_id) VALUES ($1, $2)", [userId, talentId]);
+  }
+  const count = await query("SELECT COUNT(*)::int AS count FROM shortlists WHERE talent_id = $1", [talentId]);
+  await query("UPDATE talent SET shortlists = $2 WHERE id = $1", [talentId, count.rows[0].count]);
+  return { talentId, shortlisted: !existing.rows[0], shortlists: count.rows[0].count };
+}
+
 function signupEmail(input) {
   const email = String(input.email || "").trim().toLowerCase();
   if (!email || !email.includes("@")) {
@@ -419,7 +714,6 @@ function signupEmail(input) {
 }
 
 export async function requestSignupOtp(input) {
-  const channel = "email";
   const target = signupEmail(input);
 
   const existing = await query("SELECT id FROM users WHERE email = $1", [target]);
@@ -427,7 +721,7 @@ export async function requestSignupOtp(input) {
     throw Object.assign(new Error("An account with this email already exists"), { status: 409 });
   }
 
-  const recent = await query("SELECT created_at FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+  const recent = await query("SELECT created_at FROM signup_otps WHERE target = $1 AND channel = 'email'", [target]);
   if (recent.rows[0]) {
     const ageMs = Date.now() - new Date(recent.rows[0].created_at).getTime();
     if (ageMs < 30_000) {
@@ -439,14 +733,13 @@ export async function requestSignupOtp(input) {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   await query(
     `INSERT INTO signup_otps (target, channel, code_hash, expires_at, attempts, created_at)
-     VALUES ($1, $2, $3, $4, 0, NOW())
+     VALUES ($1, 'email', $2, $3, 0, NOW())
      ON CONFLICT (target, channel) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0, created_at = NOW()`,
-    [target, channel, hashOtp(`${channel}:${target}`, code), expiresAt.toISOString()],
+    [target, hashOtp(target, code), expiresAt.toISOString()],
   );
 
   const delivered = (await sendOtpEmail(target, code, "signup")).delivered;
   return {
-    channel,
     target,
     sent: true,
     delivered,
@@ -455,29 +748,28 @@ export async function requestSignupOtp(input) {
 }
 
 export async function verifySignupOtp(input) {
-  const channel = "email";
   const target = signupEmail(input);
   const code = String(input.code || "").trim();
   if (!/^\d{6}$/.test(code)) {
     throw Object.assign(new Error("Enter the 6-digit code"), { status: 400 });
   }
 
-  const otp = await query("SELECT * FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+  const otp = await query("SELECT * FROM signup_otps WHERE target = $1 AND channel = 'email'", [target]);
   const row = otp.rows[0];
   if (!row) throw Object.assign(new Error("Request a new verification code"), { status: 400 });
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = 'email'", [target]);
     throw Object.assign(new Error("That code has expired. Request a new one"), { status: 400 });
   }
   if (row.attempts >= 5) {
-    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
+    await query("DELETE FROM signup_otps WHERE target = $1 AND channel = 'email'", [target]);
     throw Object.assign(new Error("Too many attempts. Request a new code"), { status: 400 });
   }
-  if (!hashesMatch(row.code_hash, hashOtp(`${channel}:${target}`, code))) {
-    await query("UPDATE signup_otps SET attempts = attempts + 1 WHERE target = $1 AND channel = $2", [target, channel]);
+  if (!hashesMatch(row.code_hash, hashOtp(target, code))) {
+    await query("UPDATE signup_otps SET attempts = attempts + 1 WHERE target = $1 AND channel = 'email'", [target]);
     throw Object.assign(new Error("That code is incorrect"), { status: 401 });
   }
 
-  await query("DELETE FROM signup_otps WHERE target = $1 AND channel = $2", [target, channel]);
-  return { channel, verified: true };
+  await query("DELETE FROM signup_otps WHERE target = $1 AND channel = 'email'", [target]);
+  return { verified: true };
 }

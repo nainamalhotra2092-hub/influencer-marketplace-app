@@ -3,6 +3,7 @@ import type { Role, Screen, User } from "./types";
 import { fetchUser } from "./api/client";
 import AdminDashboard from "./screens/AdminDashboard";
 import ArtistDashboard from "./screens/ArtistDashboard";
+import ArtistProfile from "./screens/ArtistProfile";
 import BuyerDashboard from "./screens/BuyerDashboard";
 import Intro from "./screens/Intro";
 import Login from "./screens/Login";
@@ -31,7 +32,7 @@ function readSession(): Session {
 
 export default function App() {
   const saved = readSession();
-  const [screen, setScreen] = useState<Screen>(saved.screen);
+  const [screen, setScreen] = useState<Screen>("intro");
   const [role, setRole] = useState<Role>(saved.role);
   const [user, setUser] = useState<User | null>(saved.user);
 
@@ -45,7 +46,6 @@ export default function App() {
       .then(({ user: next }) => {
         setUser(next);
         setRole(next.role);
-        setScreen(destinationFor(next));
       })
       .catch(() => {
         localStorage.removeItem(SESSION_KEY);
@@ -59,6 +59,8 @@ export default function App() {
     setScreen("register");
   };
 
+  const goHome = () => setScreen("intro");
+
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
     setUser(null);
@@ -71,15 +73,22 @@ export default function App() {
     setScreen(destinationFor(nextUser));
   };
 
-  if (screen === "intro") return <Intro onChoose={choose} onLogin={() => setScreen("login")} />;
+  if (screen === "intro") {
+    return (
+      <Intro
+        onChoose={choose}
+        onLogin={() => setScreen("login")}
+      />
+    );
+  }
   if (screen === "login") {
-    return <Login onBack={() => setScreen("intro")} onSuccess={enterAs} />;
+    return <Login onBack={goHome} onSuccess={enterAs} />;
   }
   if (screen === "register") {
     return (
       <Register
         role={role === "admin" ? "buyer" : role}
-        onBack={() => setScreen("intro")}
+        onBack={goHome}
         onContinue={enterAs}
       />
     );
@@ -88,6 +97,7 @@ export default function App() {
     return (
       <Setup
         user={user}
+        onBack={goHome}
         onComplete={(nextUser) => {
           setUser(nextUser);
           setScreen("artist");
@@ -95,8 +105,29 @@ export default function App() {
       />
     );
   }
-  if (screen === "artist" && user) return <ArtistDashboard user={user} onLogout={logout} />;
-  if (screen === "buyer" && user) return <BuyerDashboard user={user} onLogout={logout} />;
-  if (screen === "admin" && user) return <AdminDashboard user={user} onLogout={logout} />;
+  if (screen === "artist" && user) {
+    return (
+      <ArtistDashboard
+        user={user}
+        onLogout={logout}
+        onHome={goHome}
+        onEditProfile={() => setScreen("profile")}
+        onUserChange={setUser}
+      />
+    );
+  }
+  if (screen === "profile" && user) {
+    return (
+      <ArtistProfile
+        user={user}
+        onLogout={logout}
+        onHome={goHome}
+        onBack={() => setScreen("artist")}
+        onUserChange={setUser}
+      />
+    );
+  }
+  if (screen === "buyer" && user) return <BuyerDashboard user={user} onLogout={logout} onHome={goHome} />;
+  if (screen === "admin" && user) return <AdminDashboard user={user} onLogout={logout} onHome={goHome} />;
   return <Intro onChoose={choose} onLogin={() => setScreen("login")} />;
 }
