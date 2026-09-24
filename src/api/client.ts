@@ -80,6 +80,17 @@ export function deleteStudioMedia(userId: string, mediaId: number) {
   return request<{ media: Upload }>(`/api/users/${userId}/media/${mediaId}`, { method: "DELETE" });
 }
 
+export function fetchAdminTalent(userId: string) {
+  return request<{ results: Portrait[] }>(`/api/admin/talent?userId=${encodeURIComponent(userId)}`);
+}
+
+export function updateAdminTalent(userId: string, talentId: string, payload: { verified: boolean; agreedPrice: number; processingFee: number }) {
+  return request<{ talent: Portrait }>(`/api/admin/talent/${talentId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ userId, ...payload }),
+  });
+}
+
 export function createLicense(payload: Record<string, unknown>) {
   return request<{ license: { id: string; total: number } }>("/api/licenses", {
     method: "POST",

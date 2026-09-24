@@ -15,6 +15,7 @@ export default function Login({
 }) {
   const [step, setStep] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [devOtp, setDevOtp] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,6 +26,7 @@ export default function Login({
     try {
       const result = await requestLoginOtp(nextEmail);
       setEmail(result.email);
+      setOtp("");
       setDevOtp(result.devOtp || "");
       setStep("otp");
     } catch (err) {
@@ -46,7 +48,7 @@ export default function Login({
           <div className="relative">
             <p className="mb-4 text-xs font-bold uppercase tracking-[.18em] text-[#c9ff44]">Welcome back</p>
             <h2 className="font-display text-5xl font-semibold leading-[1.02] tracking-tight">Sign in to your account.</h2>
-            <p className="mt-5 max-w-md text-sm leading-6 text-white/65">We will email a one-time code, then open your buyer or creator studio from your saved role.</p>
+            <p className="mt-5 max-w-md text-sm leading-6 text-white/65">We will email a one-time code, then open your admin, buyer, or creator studio from your saved role.</p>
           </div>
         </aside>
         <section className="bg-[#f7f5ee] px-6 py-8 text-[#172016] sm:px-12 lg:px-20">
@@ -56,6 +58,7 @@ export default function Login({
                 onClick={() => {
                   if (step === "otp") {
                     setStep("email");
+                    setOtp("");
                     setError("");
                     return;
                   }
@@ -83,7 +86,7 @@ export default function Login({
                   }}
                   className="mt-10 grid gap-5"
                 >
-                  <Field name="email" type="email" label="Email address" placeholder="name@email.com" />
+                  <Field name="email" type="email" autoComplete="email" label="Email address" placeholder="name@email.com" />
                   {error ? <p className="text-sm text-[#9a3d2f]">{error}</p> : null}
                   <button disabled={busy} className="mt-3 flex items-center justify-center gap-3 rounded-full bg-[#172016] px-7 py-4 font-semibold text-white hover:bg-[#273526] disabled:opacity-60">
                     {busy ? "Sending code..." : "Send login code"} <Icon name="arrow" size={18} />
@@ -97,13 +100,14 @@ export default function Login({
                   Enter the 6-digit code sent to <strong className="text-[#172016]">{email}</strong>.
                 </p>
                 <form
+                  key={`otp-${email}`}
+                  autoComplete="off"
                   onSubmit={async (e) => {
                     e.preventDefault();
-                    const form = new FormData(e.currentTarget);
                     setError("");
                     setBusy(true);
                     try {
-                      const { user } = await verifyLoginOtp(email, String(form.get("code") || ""));
+                      const { user } = await verifyLoginOtp(email, otp);
                       onSuccess(user);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "Could not verify code");
@@ -113,7 +117,18 @@ export default function Login({
                   }}
                   className="mt-10 grid gap-5"
                 >
-                  <Field name="code" label="One-time code" placeholder="000000" />
+                  <Field
+                    name="otp"
+                    type="text"
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    autoFocus
+                    value={otp}
+                    onChange={(value) => setOtp(value.includes("@") ? "" : value.replace(/\D/g, "").slice(0, 6))}
+                    label="One-time code"
+                    placeholder="000000"
+                  />
                   {devOtp ? <p className="text-sm text-[#4f742f]">Local preview code: {devOtp}</p> : null}
                   {error ? <p className="text-sm text-[#9a3d2f]">{error}</p> : null}
                   <button disabled={busy} className="mt-3 flex items-center justify-center gap-3 rounded-full bg-[#172016] px-7 py-4 font-semibold text-white hover:bg-[#273526] disabled:opacity-60">

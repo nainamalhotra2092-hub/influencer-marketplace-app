@@ -5,7 +5,7 @@ export default function Logo({ dark = false }: { dark?: boolean }) {
         <span className="text-lg font-bold">F</span>
       </div>
       <span className="font-display text-xl font-bold tracking-[-0.04em]">
-        FACE<span className="font-normal">RIGHTS</span>
+        FACE<span className="font-normal">TROOP</span>
       </span>
     </div>
   );

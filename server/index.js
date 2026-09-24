@@ -7,11 +7,13 @@ import {
   createLicense,
   getStudio,
   getUser,
+  listAdminTalent,
   listLicenses,
   listTalent,
   registerUser,
   removeMedia,
   requestLoginOtp,
+  updateAdminTalent,
   verifyLoginOtp,
   verifyUser,
 } from "./store.js";
@@ -85,7 +87,7 @@ async function handle(req, res) {
   try {
     if (req.method === "GET" && pathname === "/api/health") {
       await query("SELECT 1");
-      return send(res, 200, { ok: true, service: "facerights-api", database: "postgres" }, req);
+      return send(res, 200, { ok: true, service: "facetroop-api", database: "postgres" }, req);
     }
 
     if (req.method === "GET" && pathname === "/api/talent") {
@@ -144,6 +146,17 @@ async function handle(req, res) {
       return send(res, 200, { media: await removeMedia(mediaDelete[1], mediaDelete[2]) }, req);
     }
 
+    if (req.method === "GET" && pathname === "/api/admin/talent") {
+      const results = await listAdminTalent(searchParams.get("userId") || "");
+      return send(res, 200, { results }, req);
+    }
+
+    const adminTalent = pathname.match(/^\/api\/admin\/talent\/([^/]+)$/);
+    if (req.method === "PATCH" && adminTalent) {
+      const body = await readBody(req);
+      return send(res, 200, { talent: await updateAdminTalent(body.userId, adminTalent[1], body) }, req);
+    }
+
     if (req.method === "GET" && pathname === "/api/licenses") {
       return send(res, 200, { licenses: await listLicenses() }, req);
     }
@@ -164,7 +177,7 @@ async function handle(req, res) {
 initDatabase()
   .then(() => {
     http.createServer(handle).listen(PORT, "0.0.0.0", () => {
-      console.log(`FACERIGHTS running at http://localhost:${PORT}`);
+      console.log(`FACETROOP running at http://localhost:${PORT}`);
     });
   })
   .catch((error) => {

@@ -23,7 +23,7 @@ export default function Shell({
             </button>
             <div className="hidden text-right sm:block">
               <p className="text-sm font-semibold">{user.name}</p>
-              <p className="text-xs text-[#788176]">{user.role === "artist" ? user.title || "Creator" : user.company || "Buyer"}</p>
+              <p className="text-xs text-[#788176]">{user.role === "admin" ? "Admin" : user.role === "artist" ? user.title || "Creator" : user.company || "Buyer"}</p>
             </div>
             <button onClick={onLogout} title="Sign out" className="grid h-10 w-10 place-items-center rounded-full bg-[#172016] text-white">
               <Icon name="logout" size={17} />

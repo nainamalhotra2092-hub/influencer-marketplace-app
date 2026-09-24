@@ -3,11 +3,23 @@ export default function Field({
   placeholder,
   type = "text",
   name,
+  autoComplete,
+  inputMode,
+  maxLength,
+  autoFocus,
+  value,
+  onChange,
 }: {
   label: string;
   placeholder: string;
   type?: string;
   name?: string;
+  autoComplete?: string;
+  inputMode?: "text" | "email" | "numeric" | "tel";
+  maxLength?: number;
+  autoFocus?: boolean;
+  value?: string;
+  onChange?: (value: string) => void;
 }) {
   return (
     <label className="block">
@@ -17,6 +29,12 @@ export default function Field({
         name={name}
         type={type}
         placeholder={placeholder}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
+        maxLength={maxLength}
+        autoFocus={autoFocus}
+        value={value}
+        onChange={onChange ? (event) => onChange(event.target.value) : undefined}
         className="w-full rounded-xl border border-[#d5d9d0] bg-white px-4 py-3.5 text-sm outline-none transition focus:border-[#66864d] focus:ring-2 focus:ring-[#66864d]/10"
       />
     </label>

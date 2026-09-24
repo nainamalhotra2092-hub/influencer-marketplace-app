@@ -36,7 +36,17 @@ function publicUser(row) {
   };
 }
 
+function rupeesFromText(value) {
+  return Number(String(value || "0").replace(/[₹,]/g, "")) || 0;
+}
+
+function rupeesLabel(amount) {
+  return `₹${Number(amount || 0).toLocaleString("en-IN")}`;
+}
+
 function publicTalent(row) {
+  const proposed = row.proposed_price ?? rupeesFromText(row.price);
+  const agreed = row.agreed_price ?? proposed;
   return {
     id: row.id,
     name: row.name,
@@ -46,7 +56,11 @@ function publicTalent(row) {
     collaborations: row.collaborations,
     tags: row.tags,
     age: row.age,
-    price: row.price,
+    price: rupeesLabel(agreed),
+    proposedPrice: proposed,
+    agreedPrice: agreed,
+    processingFee: row.processing_fee ?? 0,
+    verified: Boolean(row.verified),
     views: row.views,
     shortlists: row.shortlists,
   };
@@ -57,16 +71,19 @@ function ageSql(ranges) {
   const clauses = [];
   const params = [];
   for (const range of ranges) {
-    if (range === "18-25" || range === "18–25") {
+    if (range === "Below 18" || range === "below 18" || range === "<18") {
+      clauses.push("(age < 18)");
+    } else if (range === "18-25" || range === "18–25") {
       clauses.push("(age BETWEEN 18 AND 25)");
     } else if (range === "26-35" || range === "26–35") {
       clauses.push("(age BETWEEN 26 AND 35)");
     } else if (range === "36-50" || range === "36–50") {
       clauses.push("(age BETWEEN 36 AND 50)");
-    } else {
+    } else if (range === "50+" || range === "50") {
       clauses.push("(age >= 50)");
     }
   }
+  if (!clauses.length) return { sql: "TRUE", params: [] };
   return { sql: `(${clauses.join(" OR ")})`, params };
 }
 
@@ -84,6 +101,7 @@ export async function listTalent({ query: q = "", gender = "All", categories = [
      )
      AND ($2 = 'All' OR $2 = ANY(tags))
      AND (cardinality($3::text[]) = 0 OR tags && $3::text[])
+     AND verified = TRUE
      AND ${age.sql}
      ORDER BY created_at DESC`,
     params,
@@ -234,8 +252,8 @@ export async function completeProfile(userId, input) {
     if (user.role === "artist" && !talentId) {
       talentId = id("tal");
       await db.query(
-        `INSERT INTO talent (id, user_id, name, type, image, followers, collaborations, tags, age, price, views, shortlists)
-         VALUES ($1,$2,$3,$4,$5,'0',0, ARRAY['Creator']::text[], $6, '₹28,000', 0, 0)`,
+        `INSERT INTO talent (id, user_id, name, type, image, followers, collaborations, tags, age, price, proposed_price, agreed_price, processing_fee, verified, views, shortlists)
+         VALUES ($1,$2,$3,$4,$5,'0',0, ARRAY['Creator']::text[], $6, '₹28,000', 28000, NULL, 0, FALSE, 0, 0)`,
         [talentId, userId, user.name, title || "Creator", SAMPLE_IMAGES[0], age || 18],
       );
     }
@@ -307,8 +325,8 @@ export async function createLicense(input) {
   const { rows: talentRows } = await query("SELECT * FROM talent WHERE id = $1", [input.talentId]);
   const profile = talentRows[0];
   if (!profile) throw Object.assign(new Error("Talent not found"), { status: 404 });
-  const licenseFee = Number(String(profile.price).replace(/[₹,]/g, ""));
-  const protection = 4200;
+  const licenseFee = profile.agreed_price ?? profile.proposed_price ?? rupeesFromText(profile.price);
+  const protection = Number(profile.processing_fee) || 0;
   const { rows } = await query(
     `INSERT INTO licenses (id, talent_id, talent_name, buyer_id, usage, duration, description, license_fee, protection, total, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_creator_approval')
@@ -362,3 +380,32 @@ export async function listLicenses() {
 }
 
 export { SAMPLE_IMAGES };
+
+export async function requireAdmin(userId) {
+  const user = await getUser(userId);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Admin access required"), { status: 403 });
+  }
+  return user;
+}
+
+export async function listAdminTalent(adminUserId) {
+  await requireAdmin(adminUserId);
+  const { rows } = await query("SELECT * FROM talent ORDER BY created_at DESC");
+  return rows.map(publicTalent);
+}
+
+export async function updateAdminTalent(adminUserId, talentId, input) {
+  await requireAdmin(adminUserId);
+  const agreed = Math.max(0, Math.round(Number(input.agreedPrice) || 0));
+  const fee = Math.max(0, Math.round(Number(input.processingFee) || 0));
+  const { rows } = await query(
+    `UPDATE talent
+     SET verified = $2, agreed_price = $3, processing_fee = $4, price = $5
+     WHERE id = $1
+     RETURNING *`,
+    [talentId, Boolean(input.verified), agreed, fee, rupeesLabel(agreed)],
+  );
+  if (!rows[0]) throw Object.assign(new Error("Talent not found"), { status: 404 });
+  return publicTalent(rows[0]);
+}

@@ -1,3 +1,3 @@
-CREATE USER facerights WITH PASSWORD 'facerights' LOGIN;
-CREATE DATABASE facerights OWNER facerights;
-GRANT ALL PRIVILEGES ON DATABASE facerights TO facerights;
+CREATE USER facetroop WITH PASSWORD 'facetroop' LOGIN;
+CREATE DATABASE facetroop OWNER facetroop;
+GRANT ALL PRIVILEGES ON DATABASE facetroop TO facetroop;

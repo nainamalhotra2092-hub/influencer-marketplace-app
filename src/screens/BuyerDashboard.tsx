@@ -55,14 +55,14 @@ export default function BuyerDashboard({ user, onLogout }: { user: User; onLogou
             />
             <div className="mt-6 border-t border-[#e7e9e3] pt-5">
               <p className="mb-3 text-xs font-bold uppercase tracking-[.09em] text-[#758071]">Profile</p>
-              {["All", "Male", "Female", "Male child", "Female child"].map((item) => (
+              {["All", "Male", "Female"].map((item) => (
                 <label key={item} className="flex cursor-pointer items-center gap-3 py-2 text-sm">
                   <input type="radio" name="gender" checked={gender === item} onChange={() => setGender(item)} className="accent-[#172016]" />
                   {item}
                 </label>
               ))}
             </div>
-            <FilterGroup title="Age range" options={["18–25", "26–35", "36–50", "50+"]} selected={ages} onToggle={(option) => setAges((current) => toggle(current, option))} />
+            <FilterGroup title="Age range" options={["Below 18", "18–25", "26–35", "36–50", "50+"]} selected={ages} onToggle={(option) => setAges((current) => toggle(current, option))} />
           </aside>
           <section>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

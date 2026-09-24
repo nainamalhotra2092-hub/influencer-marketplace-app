@@ -1,15 +1,15 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: facerights-postgres
+    container_name: facetroop-postgres
     environment:
-      POSTGRES_USER: facerights
-      POSTGRES_PASSWORD: facerights
-      POSTGRES_DB: facerights
+      POSTGRES_USER: facetroop
+      POSTGRES_PASSWORD: facetroop
+      POSTGRES_DB: facetroop
     ports:
       - "5432:5432"
     volumes:
-      - facerights_pg:/var/lib/postgresql/data
+      - facetroop_pg:/var/lib/postgresql/data
 
 volumes:
-  facerights_pg:
+  facetroop_pg:

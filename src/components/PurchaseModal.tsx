@@ -25,8 +25,8 @@ export default function PurchaseModal({
   const [usage, setUsage] = useState("Film & streaming");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
-  const license = parseRupees(profile.price);
-  const protection = 4200;
+  const license = profile.agreedPrice ?? parseRupees(profile.price);
+  const protection = profile.processingFee ?? 0;
   const total = license + protection;
 
   return (
@@ -109,7 +109,7 @@ export default function PurchaseModal({
                 <strong>{profile.price}</strong>
               </div>
               <div className="mt-3 flex justify-between text-sm text-[#687563]">
-                <span>Platform protection & escrow</span>
+                <span>Buyer processing fee</span>
                 <span>{formatRupees(protection)}</span>
               </div>
               <div className="mt-5 flex items-end justify-between border-t border-[#ccd6c0] pt-5">

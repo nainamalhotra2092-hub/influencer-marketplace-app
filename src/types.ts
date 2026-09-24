@@ -1,5 +1,5 @@
-export type Role = "artist" | "buyer";
-export type Screen = "intro" | "login" | "register" | "setup" | "artist" | "buyer";
+export type Role = "artist" | "buyer" | "admin";
+export type Screen = "intro" | "login" | "register" | "setup" | "artist" | "buyer" | "admin";
 
 export type User = {
   id: string;
@@ -28,6 +28,10 @@ export type Portrait = {
   tags: string[];
   age: number;
   price: string;
+  proposedPrice?: number;
+  agreedPrice?: number;
+  processingFee?: number;
+  verified?: boolean;
 };
 
 export type Upload = {
