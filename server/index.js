@@ -11,6 +11,8 @@ import {
   listTalent,
   registerUser,
   removeMedia,
+  requestLoginOtp,
+  verifyLoginOtp,
   verifyUser,
 } from "./store.js";
 
@@ -99,6 +101,16 @@ async function handle(req, res) {
     if (req.method === "POST" && pathname === "/api/register") {
       const body = await readBody(req);
       return send(res, 201, { user: await registerUser(body) }, req);
+    }
+
+    if (req.method === "POST" && pathname === "/api/login/otp") {
+      const body = await readBody(req);
+      return send(res, 200, await requestLoginOtp(body.email), req);
+    }
+
+    if (req.method === "POST" && pathname === "/api/login/verify") {
+      const body = await readBody(req);
+      return send(res, 200, { user: await verifyLoginOtp(body.email, body.code) }, req);
     }
 
     if (req.method === "POST" && pathname === "/api/verify") {

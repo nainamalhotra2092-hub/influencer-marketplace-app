@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import { query, withTransaction } from "./db.js";
+import { mailConfigured, sendLoginOtp } from "./mail.js";
 
 const SAMPLE_IMAGES = [
   "https://images.unsplash.com/photo-1535579710123-3c0f261c474e?auto=format&fit=crop&w=900&q=85",
@@ -124,6 +126,88 @@ export async function registerUser(input) {
 
 export async function getUser(userId) {
   const { rows } = await query("SELECT * FROM users WHERE id = $1", [userId]);
+  if (!rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
+  return publicUser(rows[0]);
+}
+
+function hashOtp(email, code) {
+  return crypto.createHash("sha256").update(`${email}:${code}`).digest("hex");
+}
+
+function hashesMatch(left, right) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+export async function requestLoginOtp(emailInput) {
+  const email = String(emailInput || "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    throw Object.assign(new Error("Enter a valid email address"), { status: 400 });
+  }
+
+  const { rows } = await query("SELECT id FROM users WHERE email = $1", [email]);
+  if (!rows[0]) {
+    throw Object.assign(new Error("No account found for this email"), { status: 404 });
+  }
+
+  const recent = await query("SELECT created_at FROM login_otps WHERE email = $1", [email]);
+  if (recent.rows[0]) {
+    const ageMs = Date.now() - new Date(recent.rows[0].created_at).getTime();
+    if (ageMs < 30_000) {
+      throw Object.assign(new Error("Please wait a few seconds before requesting another code"), { status: 429 });
+    }
+  }
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  await query(
+    `INSERT INTO login_otps (email, code_hash, expires_at, attempts, created_at)
+     VALUES ($1, $2, $3, 0, NOW())
+     ON CONFLICT (email) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0, created_at = NOW()`,
+    [email, hashOtp(email, code), expiresAt.toISOString()],
+  );
+
+  const { delivered } = await sendLoginOtp(email, code);
+  return {
+    email,
+    sent: true,
+    delivered,
+    ...(delivered || mailConfigured() ? {} : { devOtp: code }),
+  };
+}
+
+export async function verifyLoginOtp(emailInput, codeInput) {
+  const email = String(emailInput || "").trim().toLowerCase();
+  const code = String(codeInput || "").trim();
+  if (!email || !/^\d{6}$/.test(code)) {
+    throw Object.assign(new Error("Enter the 6-digit code from your email"), { status: 400 });
+  }
+
+  const otp = await query("SELECT * FROM login_otps WHERE email = $1", [email]);
+  const row = otp.rows[0];
+  if (!row) {
+    throw Object.assign(new Error("Request a new login code"), { status: 400 });
+  }
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    await query("DELETE FROM login_otps WHERE email = $1", [email]);
+    throw Object.assign(new Error("That code has expired. Request a new one"), { status: 400 });
+  }
+  if (row.attempts >= 5) {
+    await query("DELETE FROM login_otps WHERE email = $1", [email]);
+    throw Object.assign(new Error("Too many attempts. Request a new code"), { status: 400 });
+  }
+  if (!hashesMatch(row.code_hash, hashOtp(email, code))) {
+    await query("UPDATE login_otps SET attempts = attempts + 1 WHERE email = $1", [email]);
+    throw Object.assign(new Error("That code is incorrect"), { status: 401 });
+  }
+
+  await query("DELETE FROM login_otps WHERE email = $1", [email]);
+  const { rows } = await query(
+    "UPDATE users SET email_verified = TRUE WHERE email = $1 RETURNING *",
+    [email],
+  );
   if (!rows[0]) throw Object.assign(new Error("User not found"), { status: 404 });
   return publicUser(rows[0]);
 }

@@ -26,6 +26,20 @@ export function registerUser(payload: Record<string, unknown>) {
   });
 }
 
+export function requestLoginOtp(email: string) {
+  return request<{ email: string; sent: boolean; delivered: boolean; devOtp?: string }>("/api/login/otp", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function verifyLoginOtp(email: string, code: string) {
+  return request<{ user: User }>("/api/login/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+}
+
 export function verifyUser(userId: string, field: "email" | "identity") {
   return request<{ user: User }>("/api/verify", {
     method: "POST",

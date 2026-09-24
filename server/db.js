@@ -14,10 +14,15 @@ const isPostgres = DATABASE_URL.startsWith("postgres://") || DATABASE_URL.starts
 let pool = null;
 let pglite = null;
 
+function postgresSsl(connectionString) {
+  const local = /localhost|127\.0\.0\.1|::1/i.test(connectionString);
+  return local ? false : { rejectUnauthorized: false };
+}
+
 if (isPostgres) {
   pool = new pg.Pool({
     connectionString: DATABASE_URL,
-    ssl: DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+    ssl: postgresSsl(DATABASE_URL),
   });
 } else {
   const dataDir = DATABASE_URL.replace(/^pglite:\/\//, "") || "./data/facerights";

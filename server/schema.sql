@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS licenses (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS login_otps (
+  email TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS media_owner_idx ON media (owner_id);
 CREATE INDEX IF NOT EXISTS licenses_talent_idx ON licenses (talent_id);
 CREATE INDEX IF NOT EXISTS licenses_buyer_idx ON licenses (buyer_id);

@@ -4,6 +4,7 @@ import { fetchUser } from "./api/client";
 import ArtistDashboard from "./screens/ArtistDashboard";
 import BuyerDashboard from "./screens/BuyerDashboard";
 import Intro from "./screens/Intro";
+import Login from "./screens/Login";
 import Register from "./screens/Register";
 import Setup from "./screens/Setup";
 
@@ -58,16 +59,22 @@ export default function App() {
     setScreen("intro");
   };
 
-  if (screen === "intro") return <Intro onChoose={choose} />;
+  const enterAs = (nextUser: User) => {
+    setUser(nextUser);
+    setRole(nextUser.role);
+    setScreen(nextUser.role === "artist" && !nextUser.talentId ? "setup" : nextUser.role === "artist" ? "artist" : "buyer");
+  };
+
+  if (screen === "intro") return <Intro onChoose={choose} onLogin={() => setScreen("login")} />;
+  if (screen === "login") {
+    return <Login onBack={() => setScreen("intro")} onSuccess={enterAs} />;
+  }
   if (screen === "register") {
     return (
       <Register
         role={role}
         onBack={() => setScreen("intro")}
-        onContinue={(nextUser) => {
-          setUser(nextUser);
-          setScreen(nextUser.role === "artist" ? "setup" : "buyer");
-        }}
+        onContinue={enterAs}
       />
     );
   }
@@ -84,5 +91,5 @@ export default function App() {
   }
   if (screen === "artist" && user) return <ArtistDashboard user={user} onLogout={logout} />;
   if (screen === "buyer" && user) return <BuyerDashboard user={user} onLogout={logout} />;
-  return <Intro onChoose={choose} />;
+  return <Intro onChoose={choose} onLogin={() => setScreen("login")} />;
 }

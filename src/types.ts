@@ -1,5 +1,5 @@
 export type Role = "artist" | "buyer";
-export type Screen = "intro" | "register" | "setup" | "artist" | "buyer";
+export type Screen = "intro" | "login" | "register" | "setup" | "artist" | "buyer";
 
 export type User = {
   id: string;
